@@ -1,0 +1,32 @@
+# Optional HA scheduling override: Redis broker + a Celery worker + a single Beat
+# scheduler. Use ALONGSIDE docker-compose.yml + compose.prod.yml when running with
+# SCHEDULER_MODE=celery. Exactly one beat process must run cluster-wide.
+#
+#   docker compose -f docker-compose.yml -f infra/aws/compose.prod.yml \
+#     -f infra/aws/compose.celery.yml --env-file /opt/casa/.env up -d --build
+services:
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  celery-worker:
+    build: ./backend
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info -Q casa
+    env_file: /opt/casa/.env
+    environment:
+      SCHEDULER_MODE: celery
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on: [redis, postgres]
+    restart: unless-stopped
+
+  celery-beat:
+    build: ./backend
+    command: celery -A app.core.celery_app.celery_app beat --loglevel=info
+    env_file: /opt/casa/.env
+    environment:
+      SCHEDULER_MODE: celery
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on: [redis]
+    restart: unless-stopped

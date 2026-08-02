@@ -1,0 +1,50 @@
+# Casa Harmony AI — reference TLS-terminating reverse proxy (encryption in transit).
+# Copy to your nginx sites dir, set the cert paths and server_name, then reload.
+
+# Redirect all HTTP to HTTPS.
+server {
+    listen 80;
+    server_name app.casaharmony.ai;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name app.casaharmony.ai;
+
+    # --- TLS ---
+    ssl_certificate     /etc/ssl/casa-harmony/fullchain.pem;
+    ssl_certificate_key /etc/ssl/casa-harmony/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # --- Security headers ---
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    client_max_body_size 10m;
+
+    # --- API → FastAPI backend ---
+    location /api/ {
+        proxy_pass http://backend:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /docs   { proxy_pass http://backend:8000; }
+    location = /health { proxy_pass http://backend:8000; }
+
+    # --- Everything else → Next.js frontend ---
+    location / {
+        proxy_pass http://frontend:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

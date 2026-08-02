@@ -1,0 +1,4 @@
+external_id,vendor_number,invoice_number,invoice_date,description,line_description,account,fund,amount
+APINV-5001,VEN-100,LAND-2026-01,2026-01-20,January grounds,Mowing & cleanup,0100-OPER-100-5000-0000-NONE,OPER,800.00
+APINV-5001,VEN-100,LAND-2026-01,2026-01-20,January grounds,Reserve tree work,0100-RESV-000-6000-0000-NONE,RESV,1200.00
+APINV-5002,VEN-101,POOL-114,2026-01-22,Pool monthly,Weekly service,0100-OPER-200-5100-0000-NONE,OPER,450.00

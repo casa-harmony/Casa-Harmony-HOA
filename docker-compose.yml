@@ -1,0 +1,55 @@
+# Casa Harmony AI — full local stack: PostgreSQL + FastAPI backend + Next.js frontend.
+#   docker compose up --build
+# Then open http://localhost:3000 (UI) and http://localhost:8000/docs (API).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: casa_harmony
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d casa_harmony"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_NAME: "Casa Harmony AI"
+      ENVIRONMENT: development
+      # App connects as the RESTRICTED, RLS-enforced role.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: casa_harmony
+      POSTGRES_USER: casa_app
+      POSTGRES_PASSWORD: casa_app_pwd
+      # Migrations run as the owner (DDL privileges).
+      MIGRATION_DB_URL: postgresql+psycopg://postgres:postgres@postgres:5432/casa_harmony
+      SECRET_KEY: "dev_only_change_me_in_production_please_rotate"
+      BACKEND_CORS_ORIGINS: "http://localhost:3000"
+      SUPERADMIN_EMAIL: superadmin@casaharmony.ai
+      SUPERADMIN_PASSWORD: "ChangeMe!Superadmin1"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_BASE: "http://localhost:8000/api/v1"
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

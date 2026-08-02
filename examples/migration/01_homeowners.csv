@@ -1,0 +1,5 @@
+account_number,first_name,last_name,email,property_unit
+PRN-001,Alice,Martin,alice.martin@example.com,12 Nassau Ct
+PRN-002,Brian,Okafor,brian.okafor@example.com,14 Nassau Ct
+PRN-003,Carla,Nguyen,carla.nguyen@example.com,16 Nassau Ct
+PRN-004,David,Rosen,,18 Nassau Ct

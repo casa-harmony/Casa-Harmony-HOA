@@ -1,0 +1,14 @@
+# Caddy auto-provisions a Let's Encrypt TLS cert for $PUBLIC_HOST (set via env).
+# Routes the API to the backend and everything else to the Next.js frontend.
+{$PUBLIC_HOST} {
+	encode gzip
+
+	@api path /api/* /docs /redoc /openapi.json
+	handle @api {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

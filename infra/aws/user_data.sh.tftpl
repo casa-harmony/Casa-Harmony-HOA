@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# First-boot bootstrap for the Casa Harmony test box (Amazon Linux 2023).
+set -euxo pipefail
+exec > /var/log/casa-bootstrap.log 2>&1
+
+# --- Swap (lets a 1 GB t3.micro build/run comfortably) ---
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+# --- Docker + compose plugin + git ---
+dnf update -y
+dnf install -y docker git
+systemctl enable --now docker
+ARCH=$(uname -m)   # x86_64 or aarch64
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-$${ARCH}" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# --- Clone the app ---
+mkdir -p /opt
+if [ -n "${github_token}" ]; then
+  CLONE_URL="https://${github_token}@github.com/${github_repo}.git"
+else
+  CLONE_URL="https://github.com/${github_repo}.git"
+fi
+git clone --branch "${git_branch}" "$${CLONE_URL}" /opt/casa
+cd /opt/casa
+
+# --- Generate secrets + write the .env consumed by compose ---
+SECRET_KEY=$(openssl rand -hex 32)
+FIELD_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
+cat > /opt/casa/.env <<EOF
+PUBLIC_HOST=${public_host}
+PUBLIC_URL=https://${public_host}
+SECRET_KEY=$${SECRET_KEY}
+FIELD_ENCRYPTION_KEY=$${FIELD_ENCRYPTION_KEY}
+SUPERADMIN_EMAIL=${superadmin_email}
+SUPERADMIN_PASSWORD=${superadmin_password}
+ENVIRONMENT=${environment}
+EOF
+chmod 600 /opt/casa/.env
+
+# --- Build & start (Postgres + backend + frontend + Caddy/HTTPS) ---
+docker compose -f docker-compose.yml -f infra/aws/compose.prod.yml \
+  --env-file /opt/casa/.env up -d --build
+
+echo "Casa Harmony bootstrap complete -> https://${public_host}"

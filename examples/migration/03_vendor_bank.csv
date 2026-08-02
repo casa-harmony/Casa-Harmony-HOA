@@ -1,0 +1,3 @@
+external_id,vendor_number,bank_name,routing_number,account_number,account_type,is_primary
+VBANK-100,VEN-100,First Bank of Princeton,021000021,100200300,CHECKING,yes
+VBANK-101,VEN-101,Garden State Savings,021000021,400500600,CHECKING,yes

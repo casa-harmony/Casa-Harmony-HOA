@@ -1,0 +1,4 @@
+vendor_number,name,email,payment_terms
+VEN-100,Princeton Landscaping LLC,ar@princetonland.example.com,NET30
+VEN-101,Garden State Pool Service,billing@gspool.example.com,NET15
+VEN-102,Mercer Roofing Inc,office@mercerroof.example.com,NET30

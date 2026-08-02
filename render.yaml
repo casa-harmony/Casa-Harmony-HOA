@@ -1,0 +1,54 @@
+# Render blueprint — one-click backend deploy for Casa Harmony.
+#
+# Usage: Render Dashboard → New → Blueprint → pick this repo. Render reads this
+# file and creates the API service. Fill the `sync: false` secrets when prompted.
+#
+# Database: bring your own managed Postgres (Neon recommended — free, durable).
+#   1. Create the project, then run once in the Neon SQL editor:
+#        CREATE ROLE casa_app LOGIN PASSWORD '<pw>'
+#          NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+#        GRANT CONNECT ON DATABASE neondb TO casa_app;
+#        GRANT USAGE, CREATE ON SCHEMA public TO casa_app;
+#   2. Set POSTGRES_* to the casa_app role and MIGRATION_DB_URL to the owner role
+#      (prefix the owner URL with postgresql+psycopg:// and keep ?sslmode=require).
+#
+# Frontend: deploy ./frontend on Vercel with
+#   NEXT_PUBLIC_API_BASE=https://<this-service>.onrender.com/api/v1
+# then set BACKEND_CORS_ORIGINS below to the Vercel URL and redeploy.
+
+services:
+  - type: web
+    name: casa-harmony-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/v1/openapi.json
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY            # JWT signing — generated & kept by Render
+        generateValue: true
+      - key: FIELD_ENCRYPTION_KEY  # Fernet key — generate once and PERSIST it
+        sync: false                #   python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
+      - key: ENVIRONMENT
+        value: development         # exposes resident OTP codes for testers (use 'production' for real use)
+      - key: ENABLE_SCHEDULER
+        value: "true"             # in-process nightly GL posting (no paid cron needed)
+      - key: POSTGRES_HOST
+        sync: false
+      - key: POSTGRES_PORT
+        value: "5432"
+      - key: POSTGRES_DB
+        sync: false                # e.g. neondb
+      - key: POSTGRES_USER
+        sync: false                # casa_app (restricted, NOBYPASSRLS)
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: MIGRATION_DB_URL
+        sync: false                # postgresql+psycopg://<owner>:<pw>@<host>:5432/neondb?sslmode=require
+      - key: SUPERADMIN_EMAIL
+        sync: false
+      - key: SUPERADMIN_PASSWORD
+        sync: false                # change after first login
+      - key: BACKEND_CORS_ORIGINS
+        sync: false                # https://<your-vercel-domain>

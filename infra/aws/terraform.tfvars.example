@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored (holds secrets).
+
+aws_region = "us-east-1"
+
+# PRIVATE repo? Create a GitHub read-only token (Fine-grained PAT, Contents: Read)
+# and paste it here so the box can clone. Leave "" if the repo is public.
+github_token = ""
+git_branch   = "feat/mvp-multitenant-erp"
+
+# Optional: SSH access. Paste your public key (cat ~/.ssh/id_ed25519.pub).
+# If you leave this empty you can still connect via AWS Session Manager (SSM).
+ssh_public_key   = ""
+# allowed_ssh_cidr = "203.0.113.4/32"   # your IP/32 — recommended if using SSH
+
+# Initial admin login (change the password after first login).
+superadmin_email    = "you@yourco.com"
+superadmin_password = "ChangeMe!Strong1"
+
+# Optional custom domain pointing at the Elastic IP. Leave "" to use sslip.io.
+# domain = "test.yourhoa.com"

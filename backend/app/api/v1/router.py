@@ -1,0 +1,78 @@
+from fastapi import APIRouter
+
+from app.api.v1 import (
+    ap_config,
+    ap_payments,
+    approvals,
+    ar_billing,
+    auth,
+    banks,
+    board,
+    budgeting,
+    documents,
+    cash,
+    coa,
+    collections,
+    compliance,
+    dunning,
+    encumbrance,
+    fixed_assets,
+    gateway,
+    gl,
+    migration,
+    notifications,
+    payables,
+    payments,
+    periods,
+    privacy,
+    portal,
+    purchasing,
+    rbac,
+    receiving,
+    residents,
+    scheduler,
+    service_desk,
+    statements,
+    subledger,
+    tenants,
+    vendors,
+)
+
+api_router = APIRouter()
+api_router.include_router(auth.router)
+api_router.include_router(tenants.router)
+api_router.include_router(rbac.router)
+api_router.include_router(coa.router)
+api_router.include_router(subledger.router)
+api_router.include_router(payments.router)
+api_router.include_router(privacy.router)
+# Prompt 2/3 — financial subledgers, GL, approvals
+api_router.include_router(vendors.router)
+api_router.include_router(ap_config.router)
+api_router.include_router(banks.router)
+api_router.include_router(purchasing.router)
+api_router.include_router(receiving.router)
+api_router.include_router(payables.router)
+api_router.include_router(ap_payments.router)
+api_router.include_router(cash.router)
+api_router.include_router(encumbrance.router)
+api_router.include_router(periods.router)
+api_router.include_router(budgeting.router)
+api_router.include_router(fixed_assets.router)
+api_router.include_router(compliance.router)
+api_router.include_router(ar_billing.router)
+api_router.include_router(collections.router)
+api_router.include_router(dunning.router)
+api_router.include_router(migration.router)
+api_router.include_router(board.router)
+api_router.include_router(statements.router)
+api_router.include_router(statements.public_router)
+api_router.include_router(scheduler.router)
+api_router.include_router(gateway.router)
+api_router.include_router(documents.router)
+api_router.include_router(gl.router)
+api_router.include_router(approvals.router)
+api_router.include_router(notifications.router)
+api_router.include_router(service_desk.router)
+api_router.include_router(residents.router)
+api_router.include_router(portal.router)

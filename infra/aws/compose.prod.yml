@@ -1,0 +1,46 @@
+# Production overlay for the single-box AWS deploy. Layered on docker-compose.yml:
+#   docker compose -f docker-compose.yml -f infra/aws/compose.prod.yml --env-file .env up -d --build
+# Adds Caddy (auto-HTTPS), restart policies, and injects real secrets from .env.
+#
+# Note: the base file publishes 3000/8000/5432 on the host, but the security group
+# only allows 80/443 from the internet, so only Caddy is reachable. Caddy talks to
+# the backend/frontend over the internal compose network by service name.
+services:
+  postgres:
+    restart: unless-stopped
+
+  backend:
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT}
+      SECRET_KEY: ${SECRET_KEY}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY}
+      BACKEND_CORS_ORIGINS: ${PUBLIC_URL}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD}
+      ENABLE_SCHEDULER: "true"
+
+  frontend:
+    restart: unless-stopped
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE: ${PUBLIC_URL}/api/v1
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [frontend, backend]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    volumes:
+      - ./infra/aws/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
