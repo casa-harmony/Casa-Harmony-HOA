@@ -45,7 +45,7 @@ export default function CollectionsPage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
 
-  const hoName = (id: string) => { const h = homeowners.find((x) => x.id === id); return h ? `${h.first_name} ${h.last_name}` : id.slice(0, 8); };
+  const hoName = (id: string) => { const h = homeowners.find((x) => x.id === id); return h ? `${h.first_name} ${h.last_name}` : id?.slice(0, 8) || "Unknown"; };
 
   async function act(path: string, body?: unknown, label = "act") {
     setBusy(label); setError(null); setMsg(null);

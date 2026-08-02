@@ -131,7 +131,7 @@ export default function DocumentsPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                          <Badge variant="secondary" className="bg-indigo-50 text-indigo-700">{d.entity_type}</Badge> 
-                         <span className="font-mono text-xs text-slate-400">{d.entity_id.slice(0, 8)}</span>
+                         <span className="font-mono text-xs text-slate-400">{d.entity_id?.slice(0, 8) || "Unknown"}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-slate-500 truncate max-w-[150px]">{d.content_type.split("/").pop()}</TableCell>

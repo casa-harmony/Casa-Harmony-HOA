@@ -106,7 +106,7 @@ export default function PoDetailPage() {
             <tbody>
               {l.distributions.map((d) => (
                 <tr key={d.id} className="border-b border-slate-100">
-                  <td className="py-1 pr-3 font-mono text-xs">{accts[d.code_combination_id] || d.code_combination_id.slice(0, 8)}</td>
+                  <td className="py-1 pr-3 font-mono text-xs">{accts[d.code_combination_id] || d.code_combination_id?.slice(0, 8) || "Unknown"}</td>
                   <td className="py-1 pr-3">{d.fund_value}</td>
                   <td className="py-1 pr-3 text-right">${Number(d.amount).toFixed(2)}</td>
                   <td className="py-1 pr-3 text-right">{Number(d.quantity_ordered)}</td>

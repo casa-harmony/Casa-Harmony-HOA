@@ -34,7 +34,7 @@ export default function PurchasingPage() {
   });
   const [lines, setLines] = useState<LineForm[]>([{ ...BLANK_LINE }]);
 
-  const vName = (id: string) => vendors.find((v) => v.id === id)?.name || id.slice(0, 8);
+  const vName = (id: string) => vendors.find((v) => v.id === id)?.name || id?.slice(0, 8) || "Unknown";
 
   async function load() {
     if (!token || !activeTenantId) return;

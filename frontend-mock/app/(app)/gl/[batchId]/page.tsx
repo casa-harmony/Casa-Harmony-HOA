@@ -160,7 +160,7 @@ export default function GlBatchReviewPage() {
                 <tr key={l.line_num} className="border-b border-slate-100">
                   <td className="py-1 pr-3 font-mono">{l.line_num}</td>
                   <td className="py-1 pr-3 font-mono text-xs">
-                    {accounts[l.code_combination_id] || l.code_combination_id.slice(0, 8)}
+                    {accounts[l.code_combination_id] || l.code_combination_id?.slice(0, 8) || "Unknown"}
                   </td>
                   <td className="py-1 pr-3"><Badge tone="fund">{l.fund_value}</Badge></td>
                   <td className="py-1 pr-3 text-right">

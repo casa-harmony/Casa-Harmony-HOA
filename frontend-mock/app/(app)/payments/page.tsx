@@ -46,7 +46,7 @@ export default function PaymentsPage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
 
-  const vName = (id: string) => vendors.find((v) => v.id === id)?.name || id.slice(0, 8);
+  const vName = (id: string) => vendors.find((v) => v.id === id)?.name || id?.slice(0, 8) || "Unknown";
   const chosen = payable.filter((p) => selected[p.invoice_id]);
   const chosenVendors = new Set(chosen.map((p) => p.vendor_id));
   const chosenTotal = chosen.reduce((s, p) => s + Number(p.amount_remaining), 0);

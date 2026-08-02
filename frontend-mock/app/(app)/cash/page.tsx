@@ -117,7 +117,7 @@ export default function CashPage() {
     finally { setBusy(null); }
   }
 
-  const acctName = (id: string) => accounts.find((a) => a.id === id)?.account_code || id.slice(0, 8);
+  const acctName = (id: string) => accounts.find((a) => a.id === id)?.account_code || id?.slice(0, 8) || "Unknown";
   const byFund: Record<string, CashPosition[]> = {};
   position.forEach((p) => { (byFund[p.fund_value] ||= []).push(p); });
 

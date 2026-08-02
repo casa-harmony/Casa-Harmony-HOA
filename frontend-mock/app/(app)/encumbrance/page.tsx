@@ -40,7 +40,7 @@ export default function EncumbrancePage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
 
-  const vName = (id: string) => vendors.find((v) => v.id === id)?.name || id.slice(0, 8);
+  const vName = (id: string) => vendors.find((v) => v.id === id)?.name || id?.slice(0, 8) || "Unknown";
 
   async function saveSettings(e: React.FormEvent) {
     e.preventDefault();

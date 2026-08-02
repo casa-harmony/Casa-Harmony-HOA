@@ -101,7 +101,7 @@ export default function BudgetsPage() {
     finally { setBusy(null); }
   }
 
-  const acct = (id: string) => combos.find((c) => c.id === id)?.concatenated_segments || id.slice(0, 8);
+  const acct = (id: string) => combos.find((c) => c.id === id)?.concatenated_segments || id?.slice(0, 8) || "Unknown";
   // Aggregate selected version lines to annual per combination for display.
   const annual: Record<string, number> = {};
   (sel?.lines || []).forEach((l) => { annual[l.code_combination_id] = (annual[l.code_combination_id] || 0) + Number(l.amount); });
