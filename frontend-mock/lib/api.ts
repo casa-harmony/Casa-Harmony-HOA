@@ -98,7 +98,11 @@ export async function apiFetch<T = unknown>(
     ] as any as T;
   }
   if (path.includes("/subledger/aging")) {
-    return { grand_total: 125430.50 } as any as T;
+    return {
+      as_of: "2026-06-30",
+      grand_total: 125430.50,
+      totals: { "Current": 100000.00, "1-30": 15000.00, "31-60": 5000.00, "61-90": 3000.00, "90+": 2430.50 }
+    } as any as T;
   }
   if (path === "/tenants") {
     return [
@@ -238,6 +242,39 @@ export async function apiFetch<T = unknown>(
       { period: "Jul 2026", fund: "Operating", opening: "125000", inflow: "45000", outflow: "38000", ending: "132000" },
       { period: "Aug 2026", fund: "Operating", opening: "132000", inflow: "45000", outflow: "41000", ending: "136000" },
       { period: "Sep 2026", fund: "Operating", opening: "136000", inflow: "45000", outflow: "39000", ending: "142000" }
+    ] as any as T;
+  }
+
+  if (path.includes("/compliance/checklist")) {
+    return {
+      health: {
+        gl_posted_batches: 12, gl_unbalanced_batches: 0, open_periods: 1, closed_periods: 5,
+        budget_control_mode: "Advisory", ap_open_holds: 2, unreconciled_statements: 0,
+        active_assets: 45, coa_structures: 1, vendors: 24, audit_events: 1042
+      },
+      items: [
+        { code: "chk-1", title: "Balance General Ledger", category: "FINANCE", status: "PASS", detail: "All periods balance correctly.", manual: false },
+        { code: "chk-2", title: "Review AP Holds", category: "PAYABLES", status: "WARN", detail: "2 invoices are currently on hold.", manual: true },
+        { code: "chk-3", title: "Approve Open POs", category: "PURCHASING", status: "FAIL", detail: "3 purchase orders pending approval.", manual: true },
+      ],
+      summary: { PASS: 1, WARN: 1, FAIL: 1, INFO: 0 },
+      go_live_ready: false
+    } as any as T;
+  }
+
+  if (path.includes("/compliance/go-live/status")) {
+    return {
+      is_live: false,
+      went_live_at: null,
+      last_validation_at: "2026-07-01T10:00:00Z",
+      last_validation_passed: true
+    } as any as T;
+  }
+
+  if (path.includes("/compliance/cutover/guide")) {
+    return [
+      { code: "rot-1", title: "Rotate Database Credentials", instructions: "Update via AWS Secrets Manager.", status: "PENDING", notes: null },
+      { code: "rot-2", title: "Enable Live Webhooks", instructions: "Toggle Stripe and other integrations to Live mode.", status: "DONE", notes: null }
     ] as any as T;
   }
 
