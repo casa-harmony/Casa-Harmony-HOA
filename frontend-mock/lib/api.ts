@@ -214,6 +214,33 @@ export async function apiFetch<T = unknown>(
     ] as any as T;
   }
 
+  if (path.includes("/board/exec-dashboard")) {
+    return {
+      funds: [
+        { fund: "Operating", cash: "125000.00", ar_open: "15400.00" },
+        { fund: "Reserve", cash: "450000.00", ar_open: "0.00" }
+      ],
+      cash_total: "575000.00",
+      ar_open_total: "15400.00",
+      delinquent_total: "4200.00",
+      open_cases: 3,
+      active_plans: 2,
+      filed_liens: 1,
+      aging_by_fund: {
+        "Operating": { "Current": "11200", "1-30": "2500", "31-60": "1200", "61-90": "500", "90+": "0" },
+        "Reserve": { "Current": "0", "1-30": "0", "31-60": "0", "61-90": "0", "90+": "0" }
+      }
+    } as any as T;
+  }
+
+  if (path.includes("/board/cash-flow-forecast")) {
+    return [
+      { period: "Jul 2026", fund: "Operating", opening: "125000", inflow: "45000", outflow: "38000", ending: "132000" },
+      { period: "Aug 2026", fund: "Operating", opening: "132000", inflow: "45000", outflow: "41000", ending: "136000" },
+      { period: "Sep 2026", fund: "Operating", opening: "136000", inflow: "45000", outflow: "39000", ending: "142000" }
+    ] as any as T;
+  }
+
   // Default mock response for anything else (safe array to avoid map errors on unknown list endpoints)
   return [] as any as T;
 }
