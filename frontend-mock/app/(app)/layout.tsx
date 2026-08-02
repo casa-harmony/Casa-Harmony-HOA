@@ -206,7 +206,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     (user.isSuperadmin ? "Loading HOAs…" : "Select an HOA");
 
   return (
-    <div className="flex min-h-screen bg-slate-50/30">
+    <div className="flex h-screen overflow-hidden bg-slate-50/30">
       {/* Sidebar */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200/60 bg-white/50 backdrop-blur-xl md:flex z-20">
         <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
