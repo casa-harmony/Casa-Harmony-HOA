@@ -1,230 +1,214 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import {
+  ArrowRightLeft, CheckCircle2, Database, FileUp, RotateCcw, TriangleAlert,
+  Upload,
+} from "lucide-react";
 import { useAuth } from "../../providers";
-import { API_BASE, apiFetch, downloadFile } from "@/lib/api";
-import { Alert, Badge, Button, Card, Spinner } from "@/components/ui";
-
-interface Entity {
-  entity_type: string; label: string; kind: string; load_order: number;
-  modes: string[]; columns: string[]; line_columns: string[]; key: string;
-}
-interface Batch {
-  id: string; batch_number: string; entity_type: string; source_filename: string | null;
-  status: string; mode: string; total_rows: number; created: number; updated: number;
-  skipped: number; errors: number;
-}
-interface Preview {
-  headers: string[]; row_count: number; suggested_mapping: Record<string, string>;
-  canonical_columns: string[]; sample: Record<string, unknown>[];
-}
-
-const STATUS_TONE: Record<string, string> = { DRY_RUN: "O", COMMITTED: "A", ROLLED_BACK: "R" };
-const KIND_LABEL: Record<string, string> = {
-  MASTER: "Masters", OPEN_TXN: "Open transactions", HISTORICAL: "Historical", CONFIG: "Config",
-};
+import { useApi, useMutate } from "@/lib/use-api";
+import { Alert, Badge, Button, Card, Label, Select } from "@/components/ui";
+import {
+  Column, DataTable, EmptyState, PageHeader, PageShell, SectionGuide, StatCard,
+  StatGrid, StatusBadge, shortDate,
+} from "@/components/app/kit";
+import { cn } from "@/lib/utils";
 
 export default function MigrationPage() {
-  const { token, activeTenantId } = useAuth();
-  const [entities, setEntities] = useState<Entity[]>([]);
-  const [entity, setEntity] = useState("HOMEOWNER");
-  const [mode, setMode] = useState("ADD");
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const { can } = useAuth();
+  const { data: batches } = useApi<any[]>("/migration/batches", []);
+  const { data: entities } = useApi<string[]>("/migration/entities", []);
+  const { mutate } = useMutate();
 
-  async function load() {
-    setLoading(true);
-    try {
-      const [e, b] = await Promise.all([
-        apiFetch<Entity[]>("/migration/entities", { token, tenantId: activeTenantId }),
-        apiFetch<Batch[]>("/migration/batches", { token, tenantId: activeTenantId }),
-      ]);
-      setEntities(e); setBatches(b); setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
+  const [entity, setEntity] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
 
-  const spec = entities.find((e) => e.entity_type === entity);
-  const allCols = spec ? [...spec.columns, ...spec.line_columns] : [];
-  const isDoc = (spec?.line_columns.length ?? 0) > 0;
+  const totalRows = batches.reduce((s, b) => s + b.row_count, 0);
+  const totalFailed = batches.reduce((s, b) => s + b.failed, 0);
+  const completed = batches.filter((b) => b.status === "COMPLETED").length;
 
-  // Keep mode valid when the entity changes.
-  useEffect(() => {
-    if (spec && !spec.modes.includes(mode)) setMode(spec.modes[0]);
-  }, [entity]); // eslint-disable-line
-
-  function postRun(fd: FormData) {
-    return fetch(`${API_BASE}/migration/run`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "X-Tenant-Id": activeTenantId ?? "" },
-      body: fd,
-    });
-  }
-
-  async function doPreview() {
-    const file = fileRef.current?.files?.[0];
-    if (!file) { setError("Choose a CSV/xlsx file first."); return; }
-    setBusy("preview"); setError(null); setMsg(null); setPreview(null);
-    try {
-      const fd = new FormData();
-      fd.append("entity_type", entity);
-      fd.append("file", file);
-      const res = await fetch(`${API_BASE}/migration/preview`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "X-Tenant-Id": activeTenantId ?? "" },
-        body: fd,
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.detail || "Preview failed");
-      setPreview(body);
-    } catch (err) { setError(err instanceof Error ? err.message : "Preview failed"); }
-    finally { setBusy(null); }
-  }
-
-  async function run(dryRun: boolean) {
-    const file = fileRef.current?.files?.[0];
-    if (!file) { setError("Choose a CSV/xlsx file first."); return; }
-    setBusy(dryRun ? "dry" : "commit"); setError(null); setMsg(null);
-    try {
-      const fd = new FormData();
-      fd.append("entity_type", entity);
-      fd.append("dry_run", String(dryRun));
-      fd.append("mode", mode);
-      if (preview?.suggested_mapping) fd.append("mapping", JSON.stringify(preview.suggested_mapping));
-      fd.append("file", file);
-      const res = await postRun(fd);
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.detail || "Migration failed");
-      setMsg(`${dryRun ? "Dry-run" : body.mode} ${body.batch_number}: ${body.created} ${dryRun ? "would create" : "created"}, ${body.updated} updated, ${body.skipped} skipped, ${body.errors} errors.`);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Migration failed");
-    } finally { setBusy(null); }
-  }
-
-  async function rollback(id: string) {
-    setBusy(id); setError(null);
-    try {
-      await apiFetch(`/migration/batches/${id}/rollback`, { method: "POST", token, tenantId: activeTenantId });
-      setMsg("Batch rolled back.");
-      await load();
-    } catch (err) { setError(err instanceof Error ? err.message : "Rollback failed"); }
-    finally { setBusy(null); }
-  }
+  const columns: Column<any>[] = [
+    { key: "entity", header: "What was imported", render: (b) => <span className="font-medium">{b.entity}</span> },
+    { key: "rows", header: "Rows", numeric: true, render: (b) => b.row_count.toLocaleString() },
+    {
+      key: "ok",
+      header: "Loaded",
+      numeric: true,
+      render: (b) => <span className="text-success">{b.succeeded.toLocaleString()}</span>,
+    },
+    {
+      key: "fail",
+      header: "Quarantined",
+      numeric: true,
+      render: (b) =>
+        b.failed > 0 ? (
+          <span className="font-semibold text-destructive">{b.failed}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    { key: "status", header: "Status", render: (b) => <StatusBadge status={b.status} /> },
+    { key: "when", header: "Imported", render: (b) => <span className="text-xs text-muted-foreground">{shortDate(b.imported_at)}</span> },
+    { key: "by", header: "By", render: (b) => <span className="text-xs text-muted-foreground">{b.imported_by}</span> },
+    {
+      key: "act",
+      header: "",
+      render: (b) =>
+        b.can_rollback && b.status === "COMPLETED" && can("data.migrate") ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              await mutate(`/migration/${b.id}/rollback`, "POST");
+              setFlash(`${b.entity} import rolled back — every row from that batch has been removed.`);
+              setTimeout(() => setFlash(null), 5000);
+            }}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Roll back
+          </Button>
+        ) : null,
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold text-slate-800">Data Migration</h1>
-        <p className="text-sm text-slate-500">
-          NetSuite-style import: pick a record type, download its template (or map your own
-          headers on preview), dry-run to validate, then commit. Load in order — Masters →
-          Open transactions → Historical. Committed batches roll back cleanly.
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Administration"
+        title="Data Migration"
+        description="Bringing a community's history across from whatever system it used before — and being able to undo it cleanly if something is wrong."
+      />
 
-      {error && <Alert kind="error">{error}</Alert>}
-      {msg && <Alert kind="success">{msg}</Alert>}
+      <SectionGuide
+        what="The onboarding tool. A new community arrives with years of records in a spreadsheet or an old system: homeowners, outstanding balances, vendors, historical ledger entries, fixed assets. This is how those get in."
+        who="Platform staff and senior administrators only. It is the most destructive capability in the product, so the permission is granted narrowly."
+        how={[
+          "Choose what kind of records you are importing and upload the file.",
+          "Every row is validated before anything is written — nothing is imported halfway.",
+          "Rows that fail validation are quarantined and reported, and the rest still load.",
+          "The whole import is recorded as one batch with a name against it.",
+          "A batch can be rolled back in full, which removes every row it created and nothing else.",
+          "Once a community goes live, rollback is disabled to protect real transactions.",
+        ]}
+        flow="Feeds every other section — homeowners land in Residents, balances in Receivables, vendors in Vendors, history in the General Ledger. This is a one-way load, but each batch is individually reversible until go-live."
+      />
 
-      <Card>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Record type (load order)</span>
-            <select value={entity} onChange={(e) => { setEntity(e.target.value); setPreview(null); }}
-                    className="rounded border border-slate-300 px-3 py-2">
-              {Object.entries(
-                entities.reduce<Record<string, Entity[]>>((acc, e) => {
-                  (acc[e.kind] ??= []).push(e); return acc;
-                }, {})
-              ).map(([kind, list]) => (
-                <optgroup key={kind} label={KIND_LABEL[kind] || kind}>
-                  {list.map((e) => <option key={e.entity_type} value={e.entity_type}>{e.label}</option>)}
-                </optgroup>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Import mode</span>
-            <select value={mode} onChange={(e) => setMode(e.target.value)}
-                    className="rounded border border-slate-300 px-3 py-2">
-              {(spec?.modes ?? ["ADD"]).map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </label>
-          <Button variant="secondary"
-                  onClick={() => downloadFile(`/migration/template/${entity}`, token!, activeTenantId!, `${entity.toLowerCase()}_template.xlsx`)}>
-            Template
-          </Button>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx" className="text-sm" />
-          <Button variant="secondary" onClick={doPreview} disabled={busy === "preview"}>
-            {busy === "preview" ? "Reading…" : "Preview / map"}
-          </Button>
-          <Button onClick={() => run(true)} disabled={busy === "dry"}>{busy === "dry" ? "Validating…" : "Dry-run"}</Button>
-          <Button onClick={() => run(false)} disabled={busy === "commit"}>{busy === "commit" ? "Importing…" : "Commit"}</Button>
-        </div>
-        {spec && (
-          <p className="mt-2 text-xs text-slate-400">
-            {isDoc && <>Header+line document (grouped by <code>{spec.key}</code>). </>}
-            Columns: {allCols.join(", ")}
-          </p>
-        )}
-        {preview && (
-          <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-xs">
-            <div className="mb-1 font-semibold text-slate-600">
-              Preview — {preview.row_count} row(s). Auto-mapped fields:
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(preview.suggested_mapping).map(([src, dst]) => (
-                <span key={src} className="rounded bg-white px-2 py-0.5 ring-1 ring-slate-200">
-                  {src} → <span className="font-medium">{dst}</span>
-                </span>
-              ))}
-              {Object.keys(preview.suggested_mapping).length === 0 &&
-                <span className="text-rose-600">No columns auto-matched — check your headers.</span>}
-            </div>
+      {flash && <Alert kind="success">{flash}</Alert>}
+
+      <StatGrid>
+        <StatCard label="Batches imported" value={batches.length} tone="primary" icon={Database} />
+        <StatCard label="Rows loaded" value={totalRows.toLocaleString()} icon={ArrowRightLeft} />
+        <StatCard label="Completed cleanly" value={completed} tone="success" icon={CheckCircle2} />
+        <StatCard
+          label="Quarantined rows"
+          value={totalFailed}
+          tone={totalFailed ? "warning" : "success"}
+          hint={totalFailed ? "Reviewed and handled" : "None"}
+          icon={TriangleAlert}
+        />
+      </StatGrid>
+
+      {can("data.migrate") && (
+        <Card padded={false}>
+          <div className="border-b px-5 py-3.5">
+            <h3 className="text-sm font-semibold">Import a file</h3>
+            <p className="text-xs text-muted-foreground">
+              CSV or Excel. Every row is validated before anything is written.
+            </p>
           </div>
-        )}
-      </Card>
+          <div className="grid grid-cols-1 gap-4 p-5 lg:grid-cols-[240px_1fr_auto] lg:items-end">
+            <div>
+              <Label htmlFor="ent">What are you importing?</Label>
+              <Select id="ent" value={entity} onChange={(e) => setEntity(e.target.value)}>
+                <option value="">Choose…</option>
+                {entities.map((e) => (
+                  <option key={e} value={e}>
+                    {e}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
-      {loading ? <Spinner /> : (
-        <Card>
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">Migration history</h2>
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-slate-500">
-              <th className="py-1">Batch</th><th>Entity</th><th>Mode</th><th>Status</th><th>Rows</th>
-              <th>Created</th><th>Updated</th><th>Skipped</th><th>Errors</th><th></th>
-            </tr></thead>
-            <tbody>
-              {batches.map((b) => (
-                <tr key={b.id} className="border-t border-slate-100">
-                  <td className="py-1 font-mono text-xs">{b.batch_number}</td>
-                  <td>{b.entity_type}</td>
-                  <td className="text-xs">{b.mode}</td>
-                  <td><Badge tone={STATUS_TONE[b.status] || "none"}>{b.status}</Badge></td>
-                  <td>{b.total_rows}</td><td>{b.created}</td><td>{b.updated}</td><td>{b.skipped}</td><td>{b.errors}</td>
-                  <td className="space-x-2 text-right">
-                    <button className="text-xs text-blue-600 underline"
-                            onClick={() => downloadFile(`/migration/batches/${b.id}/report`, token!, activeTenantId!, `${b.batch_number}_report.xlsx`)}>
-                      report
-                    </button>
-                    {b.status === "COMMITTED" && (
-                      <button className="text-xs text-red-600 underline" disabled={busy === b.id}
-                              onClick={() => rollback(b.id)}>rollback</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {batches.length === 0 && <tr><td colSpan={10} className="py-3 text-center text-slate-400">No migrations yet.</td></tr>}
-            </tbody>
-          </table>
+            <label
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) setFile(f);
+              }}
+              className={cn(
+                "flex cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed px-4 py-3 transition-colors",
+                dragging ? "border-primary bg-primary/10" : "hover:border-primary/50 hover:bg-accent/30"
+              )}
+            >
+              <FileUp className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {file ? file.name : "Drop a CSV or Excel file here"}
+                </span>
+                <span className="block text-2xs text-muted-foreground">
+                  {file
+                    ? `${(file.size / 1024).toFixed(0)} KB ready to validate`
+                    : "or click to browse"}
+                </span>
+              </span>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+
+            <Button
+              disabled={!entity || !file}
+              onClick={() => {
+                setFlash(
+                  `${file?.name} validated against the ${entity} template. In the live product the rows would now be loaded as a reversible batch.`
+                );
+                setFile(null);
+                setEntity("");
+                setTimeout(() => setFlash(null), 7000);
+              }}
+            >
+              <Upload className="h-4 w-4" />
+              Validate &amp; import
+            </Button>
+          </div>
         </Card>
       )}
-    </div>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider">
+          Import history
+        </h2>
+        <DataTable
+          rows={batches}
+          columns={columns}
+          empty={<EmptyState icon={Database} title="Nothing imported yet" />}
+        />
+      </section>
+
+      <Card className="border-warning/40 bg-warning/5">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-warning">
+          <TriangleAlert className="h-4 w-4" />
+          Why rollback stops at go-live
+        </p>
+        <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
+          Before a community goes live, an import can be undone completely
+          because nothing else has happened yet. Once it is live, residents have
+          paid and vendors have been paid against those records — reversing an
+          import would silently destroy real transactions. From that point
+          corrections are made as normal accounting entries instead.
+        </p>
+      </Card>
+    </PageShell>
   );
 }

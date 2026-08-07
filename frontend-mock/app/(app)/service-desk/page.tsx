@@ -1,499 +1,701 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import {
+  AlertTriangle, ArrowRight, Building2, CheckCircle2, MessageSquare,
+  Paperclip, Plus, Send, Ticket as TicketIcon, Upload, User,
+} from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch } from "@/lib/api";
-import type { CodeCombination, ServiceTicket, Structure, Vendor } from "@/lib/types";
-import { Alert, Spinner } from "@/components/ui";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Label } from "@/components/ui/label";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Plus, LayoutGrid, List, ArrowRight, CheckCircle2, AlertCircle, Clock, CheckCircle } from "lucide-react";
-import { motion } from "framer-motion";
-import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
+import { useApi, useMutate } from "@/lib/use-api";
+import {
+  Alert, Badge, Button, Card, Input, Label, Modal, Select, Textarea,
+} from "@/components/ui";
+import {
+  Column, DataTable, DetailSheet, EmptyState, Facts, FilterChips, PageHeader,
+  PageShell, SectionGuide, StatCard, StatGrid, StatusBadge, Timeline, Toolbar,
+  money, relTime, shortDate,
+} from "@/components/app/kit";
+import { ChartCard, TicketMixChart } from "@/components/app/charts";
 
-const PRIORITY_VARIANT: Record<string, "destructive" | "default" | "secondary" | "outline"> = { LOW: "secondary", MEDIUM: "default", HIGH: "destructive" };
-const STATUS_VARIANT: Record<string, "destructive" | "default" | "secondary" | "outline"> = {
-  OPEN: "default", IN_PROGRESS: "secondary", RESOLVED: "outline", CLOSED: "outline",
-};
-
-const MOCK_TICKET_TREND = [
-  { day: 'M', value: 5 }, { day: 'T', value: 8 }, { day: 'W', value: 12 },
-  { day: 'T', value: 7 }, { day: 'F', value: 15 }, { day: 'S', value: 4 }, { day: 'S', value: 6 }
-];
+const CATEGORIES = ["MAINTENANCE", "COMPLAINT", "REQUEST", "VIOLATION"];
+const PRIORITIES = ["LOW", "MEDIUM", "HIGH"];
+const STATUSES = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"];
 
 export default function ServiceDeskPage() {
-  const { token, activeTenantId } = useAuth();
-  const [tickets, setTickets] = useState<ServiceTicket[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [combos, setCombos] = useState<CodeCombination[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [poFor, setPoFor] = useState<ServiceTicket | null>(null);
-  
-  const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"kanban" | "table">("table");
-  const [form, setForm] = useState({
-    subject: "", description: "", category: "MAINTENANCE", priority: "MEDIUM",
-    vendor_id: "", estimated_cost: "",
-  });
-  const [poAccount, setPoAccount] = useState("");
+  const { persona, can } = useAuth();
+  const { data: tickets, loading } = useApi<any[]>("/service-desk/tickets", []);
+  const { data: vendors } = useApi<any[]>("/vendors", []);
+  const { data: homeowners } = useApi<any[]>("/subledger/homeowners", []);
+  const { mutate } = useMutate();
 
-  async function load() {
-    if (!token || !activeTenantId) return;
-    setLoading(true);
-    try {
-      const [t, v, structures] = await Promise.all([
-        apiFetch<ServiceTicket[]>("/service-desk/tickets", { token, tenantId: activeTenantId }),
-        apiFetch<Vendor[]>("/vendors", { token, tenantId: activeTenantId }),
-        apiFetch<Structure[]>("/coa/structures", { token, tenantId: activeTenantId }),
-      ]);
-      setTickets(t);
-      setVendors(v);
-      if (structures[0]) {
-        setCombos(await apiFetch<CodeCombination[]>(
-          `/coa/structures/${structures[0].id}/combinations`, { token, tenantId: activeTenantId }));
-      }
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [status, setStatus] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activeTenantId]);
+  const ticket = tickets.find((t) => t.id === selected) ?? null;
 
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await apiFetch("/service-desk/tickets", {
-        method: "POST", token, tenantId: activeTenantId,
-        body: {
-          subject: form.subject, description: form.description || undefined,
-          category: form.category, priority: form.priority,
-          vendor_id: form.vendor_id || undefined,
-          estimated_cost: form.estimated_cost || undefined,
-        },
-      });
-      setSheetOpen(false);
-      setForm({ subject: "", description: "", category: "MAINTENANCE", priority: "MEDIUM",
-                vendor_id: "", estimated_cost: "" });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create ticket");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function createPo(e: React.FormEvent) {
-    e.preventDefault();
-    if (!poFor) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const po = await apiFetch<{ po_number: string }>(
-        `/service-desk/tickets/${poFor.id}/create-po`,
-        { method: "POST", token, tenantId: activeTenantId, body: { code_combination_id: poAccount } }
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return tickets.filter((t) => {
+      if (status !== "ALL" && t.status !== status) return false;
+      if (!q) return true;
+      return (
+        t.subject.toLowerCase().includes(q) ||
+        t.ticket_number.toLowerCase().includes(q) ||
+        String(t.unit).includes(q) ||
+        (t.reported_by ?? "").toLowerCase().includes(q)
       );
-      setMsg(`Created ${po.po_number} from ${poFor.ticket_number}.`);
-      setPoFor(null);
-      setPoAccount("");
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create PO");
-    } finally {
-      setBusy(false);
-    }
+    });
+  }, [tickets, status, search]);
+
+  const counts = useMemo(
+    () => ({
+      ALL: tickets.length,
+      OPEN: tickets.filter((t) => t.status === "OPEN").length,
+      IN_PROGRESS: tickets.filter((t) => t.status === "IN_PROGRESS").length,
+      RESOLVED: tickets.filter((t) => t.status === "RESOLVED").length,
+      CLOSED: tickets.filter((t) => t.status === "CLOSED").length,
+    }),
+    [tickets]
+  );
+
+  const highOpen = tickets.filter(
+    (t) => t.priority === "HIGH" && t.status !== "CLOSED" && t.status !== "RESOLVED"
+  ).length;
+
+  async function notify(msg: string) {
+    setFlash(msg);
+    setTimeout(() => setFlash(null), 4000);
   }
 
-  async function moveTicket(t: ServiceTicket, status: string) {
-    setError(null);
-    try {
-      await apiFetch(`/service-desk/tickets/${t.id}`, {
-        method: "PATCH", token, tenantId: activeTenantId, body: { status },
-      });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to move ticket");
-    }
-  }
-
-  const COLUMNS = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"];
-  const NEXT: Record<string, string> = { OPEN: "IN_PROGRESS", IN_PROGRESS: "RESOLVED", RESOLVED: "CLOSED" };
-
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Service Desk</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Manage HOA maintenance requests, complaints, and drive expenses.
+  const columns: Column<any>[] = [
+    {
+      key: "ref",
+      header: "Ticket",
+      render: (t) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{t.subject}</p>
+          <p className="font-mono text-2xs text-muted-foreground">
+            {t.ticket_number}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-            <button
-              onClick={() => setView("table")}
-              className={`p-1.5 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
-                view === "table" ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              <List className="h-4 w-4" /> 
-            </button>
-            <button
-              onClick={() => setView("kanban")}
-              className={`p-1.5 rounded-md text-sm font-medium flex items-center gap-1 transition-all ${
-                view === "kanban" ? "bg-white shadow-sm text-slate-800" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-          </div>
-          <Button onClick={() => setSheetOpen(true)} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
-            <Plus className="h-4 w-4" /> New Ticket
-          </Button>
+      ),
+    },
+    {
+      key: "unit",
+      header: "Unit",
+      render: (t) => (
+        <div>
+          <p className="text-sm">{t.unit}</p>
+          <p className="truncate text-2xs text-muted-foreground">
+            {t.reported_by}
+          </p>
         </div>
+      ),
+    },
+    {
+      key: "category",
+      header: "Category",
+      render: (t) => (
+        <span className="text-xs text-muted-foreground">
+          {t.category.replace(/_/g, " ")}
+        </span>
+      ),
+    },
+    { key: "priority", header: "Priority", render: (t) => <StatusBadge status={t.priority} /> },
+    { key: "status", header: "Status", render: (t) => <StatusBadge status={t.status} /> },
+    {
+      key: "vendor",
+      header: "Vendor",
+      render: (t) => {
+        const v = vendors.find((x) => x.id === t.vendor_id);
+        return v ? (
+          <span className="text-xs">{v.name}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        );
+      },
+    },
+    {
+      key: "cost",
+      header: "Estimate",
+      numeric: true,
+      render: (t) => (
+        <span className="text-xs">
+          {t.estimated_cost ? money(t.estimated_cost, 0) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "age",
+      header: "Raised",
+      render: (t) => (
+        <span className="text-xs text-muted-foreground">
+          {relTime(t.created_at)}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <PageShell>
+      <PageHeader
+        eyebrow="Core Operations"
+        title="Service Desk"
+        description="Every problem, request, complaint and rule violation reported in this community — from first report through to the vendor being paid."
+        actions={
+          can("ticket.manage") && (
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              New ticket
+            </Button>
+          )
+        }
+      />
+
+      <SectionGuide
+        what="The intake and tracking system for anything that needs doing. A resident reports a leak from the portal, or a staff member logs a complaint — it becomes a ticket that is triaged, assigned and driven to closed."
+        who="Property managers run it day to day. Residents create tickets from their portal. Accountants have no access at all — try switching to David Lin and this screen disappears from the menu."
+        how={[
+          "A ticket is raised with a category, a priority and the unit it relates to.",
+          "Staff triage it — set the priority, assign an owner, add notes to the thread.",
+          "For work that costs money, a vendor and an estimate are attached.",
+          "The ticket is converted into a purchase order, which enters the approval chain based on its amount.",
+          "Once approved, the work is done, the vendor invoices, and the invoice is matched against that purchase order before payment.",
+          "The ticket is resolved and closed, with the full history retained.",
+        ]}
+        flow="This is the front door of the money-out cycle. Service Desk → Purchasing → Receiving → Payables → Payments. The link runs both ways: the purchase order number is written back onto the ticket, so its approval status shows here without leaving the screen."
+      />
+
+      {flash && <Alert kind="success">{flash}</Alert>}
+
+      <StatGrid>
+        <StatCard label="Open" value={counts.OPEN} tone="primary" icon={TicketIcon} />
+        <StatCard label="In progress" value={counts.IN_PROGRESS} tone="warning" />
+        <StatCard
+          label="High priority"
+          value={highOpen}
+          tone={highOpen ? "danger" : "success"}
+          hint={highOpen ? "Needs attention today" : "Nothing urgent"}
+          icon={AlertTriangle}
+        />
+        <StatCard label="Resolved this period" value={counts.RESOLVED} tone="success" icon={CheckCircle2} />
+      </StatGrid>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ChartCard
+          title="What residents are reporting"
+          caption="Ticket volume by category, this community"
+          table={{
+            head: ["Category", "Tickets"],
+            rows: CATEGORIES.map((c) => [
+              c.replace(/_/g, " "),
+              tickets.filter((t) => t.category === c).length,
+            ]),
+          }}
+        >
+          <TicketMixChart
+            data={CATEGORIES.map((c) => ({
+              label: c.charAt(0) + c.slice(1).toLowerCase(),
+              count: tickets.filter((t) => t.category === c).length,
+            }))}
+          />
+        </ChartCard>
+
+        <ChartCard
+          title="Where the work stands"
+          caption="Every ticket by its current status"
+          table={{
+            head: ["Status", "Tickets"],
+            rows: STATUSES.map((s) => [
+              s.replace(/_/g, " "),
+              tickets.filter((t) => t.status === s).length,
+            ]),
+          }}
+        >
+          <TicketMixChart
+            data={STATUSES.map((s) => ({
+              label: s
+                .replace(/_/g, " ")
+                .toLowerCase()
+                .replace(/^./, (m) => m.toUpperCase()),
+              count: tickets.filter((t) => t.status === s).length,
+            }))}
+          />
+        </ChartCard>
       </div>
-      
-      {error && <Alert kind="error">{error}</Alert>}
-      {msg && <Alert kind="success">{msg}</Alert>}
 
-      {/* KPI Row */}
-      {!loading && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="shadow-sm border-slate-200/60 overflow-hidden relative group">
-            <div className="absolute right-0 top-0 p-6 bg-indigo-50 rounded-full blur-2xl opacity-0 group-hover:opacity-50 transition-opacity"></div>
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Tickets</p>
-                <p className="text-3xl font-black text-slate-800">{tickets.length}</p>
-              </div>
-              <div className="h-10 w-10 bg-indigo-100 rounded-full flex items-center justify-center">
-                <List className="h-5 w-5 text-indigo-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="shadow-sm border-slate-200/60 overflow-hidden relative group">
-             <div className="absolute right-0 top-0 p-6 bg-rose-50 rounded-full blur-2xl opacity-0 group-hover:opacity-50 transition-opacity"></div>
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Open</p>
-                <p className="text-3xl font-black text-slate-800">{tickets.filter(t => t.status === "OPEN").length}</p>
-              </div>
-              <div className="h-10 w-10 bg-rose-100 rounded-full flex items-center justify-center">
-                <AlertCircle className="h-5 w-5 text-rose-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="shadow-sm border-slate-200/60 overflow-hidden relative group">
-            <div className="absolute right-0 top-0 p-6 bg-amber-50 rounded-full blur-2xl opacity-0 group-hover:opacity-50 transition-opacity"></div>
-            <CardContent className="p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">In Progress</p>
-                <p className="text-3xl font-black text-slate-800">{tickets.filter(t => t.status === "IN_PROGRESS").length}</p>
-              </div>
-              <div className="h-10 w-10 bg-amber-100 rounded-full flex items-center justify-center">
-                <Clock className="h-5 w-5 text-amber-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="shadow-sm border-slate-200/60 overflow-hidden relative p-0 flex flex-col justify-end bg-gradient-to-br from-emerald-50 to-emerald-100/50">
-            <div className="absolute top-4 left-4 z-10">
-              <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider mb-1">Weekly Trend</p>
-              <p className="text-xl font-black text-emerald-900">+14%</p>
-            </div>
-            <div className="h-24 w-full mt-auto">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={MOCK_TICKET_TREND} margin={{ top: 30, right: 0, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <Tooltip contentStyle={{ fontSize: '12px', borderRadius: '8px' }} />
-                  <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorTrend)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        </motion.div>
+      <Toolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search by subject, number, unit or resident…"
+        filters={
+          <FilterChips
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "ALL", label: "All", count: counts.ALL },
+              { value: "OPEN", label: "Open", count: counts.OPEN },
+              { value: "IN_PROGRESS", label: "In progress", count: counts.IN_PROGRESS },
+              { value: "RESOLVED", label: "Resolved", count: counts.RESOLVED },
+              { value: "CLOSED", label: "Closed", count: counts.CLOSED },
+            ]}
+          />
+        }
+      />
+
+      <DataTable
+        rows={filtered}
+        columns={columns}
+        onRowClick={(t) => setSelected(t.id)}
+        empty={
+          <EmptyState
+            icon={TicketIcon}
+            title={search || status !== "ALL" ? "No tickets match" : "No tickets yet"}
+            description={
+              search || status !== "ALL"
+                ? "Try clearing the search or choosing a different status."
+                : "Raise the first ticket to see it appear here."
+            }
+            action={
+              can("ticket.manage") && (
+                <Button onClick={() => setCreating(true)}>
+                  <Plus className="h-4 w-4" />
+                  New ticket
+                </Button>
+              )
+            }
+          />
+        }
+      />
+
+      {ticket && (
+        <TicketDrawer
+          ticket={ticket}
+          vendors={vendors}
+          onClose={() => setSelected(null)}
+          mutate={mutate}
+          notify={notify}
+          canManage={can("ticket.manage")}
+          actor={persona?.full_name ?? "Staff"}
+        />
       )}
 
-      {!loading && view === "kanban" && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }} className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          {COLUMNS.map((col) => (
-            <div key={col} className="rounded-xl bg-slate-50/80 border border-slate-200 p-3 flex flex-col gap-3 shadow-inner">
-              <div className="flex items-center justify-between px-1 mb-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{col.replace("_", " ")}</span>
-                <Badge variant="secondary" className="bg-white text-slate-700 shadow-sm border border-slate-200/60">{tickets.filter((t) => t.status === col).length}</Badge>
-              </div>
-              <div className="flex-1 space-y-3">
-                {tickets.filter((t) => t.status === col).map((t) => (
-                  <div key={t.id} className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-mono text-[11px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{t.ticket_number}</span>
-                      <Badge variant={t.priority === "HIGH" ? "destructive" : t.priority === "MEDIUM" ? "default" : "secondary"} className="text-[10px] shadow-sm">
-                        {t.priority}
-                      </Badge>
-                    </div>
-                    <div className="text-sm font-bold text-slate-800 mb-2 leading-snug line-clamp-2">{t.subject}</div>
-                    <div className="text-xs text-slate-500 mb-4 flex items-center justify-between">
-                       <span className="text-slate-600 font-medium">{t.category}</span>
-                       {t.estimated_cost && (
-                         <span className="text-indigo-600 font-mono font-bold bg-indigo-50 px-1.5 py-0.5 rounded-md">${Number(t.estimated_cost).toFixed(2)}</span>
-                       )}
-                    </div>
-                    <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-100">
-                      {NEXT[t.status] && (
-                        <button onClick={(e) => { e.stopPropagation(); moveTicket(t, NEXT[t.status]) }}
-                          className="flex items-center gap-1 w-full justify-center rounded-lg bg-indigo-50 px-2 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white transition-colors">
-                           Move to {NEXT[t.status].replace("_", " ")} <ArrowRight className="h-3 w-3" />
-                        </button>
-                      )}
-                      {!t.po_header_id && t.vendor_id && t.estimated_cost && (
-                        <button onClick={(e) => { e.stopPropagation(); setPoFor(t) }}
-                          className="flex items-center justify-center w-full gap-1 rounded-lg bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors mt-1">
-                          <CheckCircle2 className="h-3 w-3" /> Generate PO
-                        </button>
-                      )}
-                      {t.po_header_id && <div className="w-full text-center mt-1"><Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">PO GENERATED</Badge></div>}
-                    </div>
-                  </div>
+      {creating && (
+        <NewTicketModal
+          homeowners={homeowners}
+          onClose={() => setCreating(false)}
+          onCreate={async (body) => {
+            const t: any = await mutate("/service-desk/tickets", "POST", body);
+            setCreating(false);
+            notify(`Ticket ${t.ticket_number} created and added to the inbox.`);
+            setSelected(t.id);
+          }}
+        />
+      )}
+    </PageShell>
+  );
+}
+
+/* ============================================================ ticket drawer */
+
+function TicketDrawer({
+  ticket, vendors, onClose, mutate, notify, canManage, actor,
+}: {
+  ticket: any;
+  vendors: any[];
+  onClose: () => void;
+  mutate: (p: string, m: string, b?: unknown) => Promise<any>;
+  notify: (m: string) => void;
+  canManage: boolean;
+  actor: string;
+}) {
+  const { data: comments } = useApi<any[]>(
+    `/service-desk/tickets/${ticket.id}/comments`,
+    []
+  );
+  const [reply, setReply] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [vendorId, setVendorId] = useState(ticket.vendor_id ?? "");
+  const [estimate, setEstimate] = useState(String(ticket.estimated_cost ?? ""));
+  const [files, setFiles] = useState<{ name: string; size: number }[]>([]);
+
+  const vendor = vendors.find((v) => v.id === ticket.vendor_id);
+
+  const events = comments.map((c) => ({
+    at: relTime(c.at),
+    actor: `${c.author} · ${c.role}`,
+    title: c.role === "System" ? c.body : c.body,
+    tone: c.role === "System" ? ("primary" as const) : ("default" as const),
+  }));
+
+  async function send() {
+    if (!reply.trim()) return;
+    await mutate(`/service-desk/tickets/${ticket.id}/comments`, "POST", {
+      author: actor,
+      role: "Property Manager",
+      body: reply.trim(),
+    });
+    setReply("");
+  }
+
+  async function assignVendor() {
+    if (!vendorId) return;
+    await mutate(`/service-desk/tickets/${ticket.id}/assign-vendor`, "POST", {
+      vendor_id: vendorId,
+      estimated_cost: estimate ? Number(estimate) : null,
+      actor,
+    });
+    setAssigning(false);
+    const v = vendors.find((x) => x.id === vendorId);
+    notify(
+      `${ticket.ticket_number} assigned to ${v?.name}. A notification has been posted to the inbox — check the bell.`
+    );
+  }
+
+  async function convertToPo() {
+    const po = await mutate(
+      `/service-desk/tickets/${ticket.id}/convert-to-po`,
+      "POST",
+      { actor }
+    );
+    notify(
+      `Purchase order ${po.po_number} raised and submitted for approval. It now appears on the Approvals screen.`
+    );
+  }
+
+  async function setStatus(s: string) {
+    await mutate(`/service-desk/tickets/${ticket.id}`, "PATCH", {
+      status: s,
+      actor,
+    });
+  }
+
+  return (
+    <DetailSheet
+      open
+      onClose={onClose}
+      title={ticket.subject}
+      subtitle={`${ticket.ticket_number} · Unit ${ticket.unit} · raised by ${ticket.reported_by}`}
+      badge={<StatusBadge status={ticket.status} />}
+      width="xl"
+      footer={
+        canManage && (
+          <>
+            {ticket.status !== "CLOSED" && (
+              <Select
+                value={ticket.status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="h-9 w-40"
+              >
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s.replace(/_/g, " ")}
+                  </option>
                 ))}
-                {tickets.filter((t) => t.status === col).length === 0 && (
-                   <div className="flex items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                      <span className="text-xs font-medium text-slate-400">No tickets</span>
-                   </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </motion.div>
-      )}
+              </Select>
+            )}
+            {ticket.vendor_id && !ticket.po_header_id && (
+              <Button onClick={convertToPo}>
+                Raise purchase order
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            )}
+          </>
+        )
+      }
+    >
+      <div className="space-y-6">
+        <Facts
+          items={[
+            { label: "Category", value: ticket.category.replace(/_/g, " ") },
+            { label: "Priority", value: <StatusBadge status={ticket.priority} /> },
+            { label: "Assigned to", value: ticket.assigned_to ?? "Unassigned" },
+            { label: "Raised", value: shortDate(ticket.created_at) },
+            {
+              label: "Vendor",
+              value: vendor ? vendor.name : "Not assigned",
+            },
+            {
+              label: "Estimate",
+              value: ticket.estimated_cost ? money(ticket.estimated_cost) : "—",
+            },
+          ]}
+        />
 
-      {view === "table" && (
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }}>
-        <Card className="shadow-sm border-slate-200 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            {loading ? (
-               <div className="flex justify-center p-12"><Spinner /></div>
-            ) : (
-              <Table>
-                <TableHeader className="bg-slate-50">
-                  <TableRow>
-                    <TableHead className="font-semibold text-slate-600">Ticket ID</TableHead>
-                    <TableHead className="font-semibold text-slate-600">Subject</TableHead>
-                    <TableHead className="font-semibold text-slate-600">Category</TableHead>
-                    <TableHead className="font-semibold text-slate-600">Priority</TableHead>
-                    <TableHead className="font-semibold text-slate-600">Status</TableHead>
-                    <TableHead className="font-semibold text-slate-600 text-right">Est. Cost</TableHead>
-                    <TableHead className="font-semibold text-slate-600 text-right"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tickets.length === 0 && (
-                     <TableRow>
-                        <TableCell colSpan={7} className="h-32 text-center text-slate-500 font-medium">
-                           No tickets found.
-                        </TableCell>
-                     </TableRow>
-                  )}
-                  {tickets.map((t) => (
-                    <TableRow key={t.id} className="hover:bg-slate-50 transition-colors group">
-                      <TableCell className="font-mono text-[11px] font-medium text-slate-500"><span className="bg-slate-100 px-1.5 py-0.5 rounded">{t.ticket_number}</span></TableCell>
-                      <TableCell className="font-semibold text-slate-800">{t.subject}</TableCell>
-                      <TableCell><span className="text-slate-600 font-medium">{t.category}</span></TableCell>
-                      <TableCell><Badge variant={PRIORITY_VARIANT[t.priority]} className="shadow-sm">{t.priority}</Badge></TableCell>
-                      <TableCell><Badge variant={STATUS_VARIANT[t.status]} className={t.status === "RESOLVED" || t.status === "CLOSED" ? "bg-slate-100 text-slate-600" : "shadow-sm"}>{t.status}</Badge></TableCell>
-                      <TableCell className="text-right font-mono font-bold text-slate-700">
-                         {t.estimated_cost ? `$${Number(t.estimated_cost).toFixed(2)}` : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                         <DropdownMenu>
-                           <DropdownMenuTrigger asChild>
-                             <Button variant="ghost" className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                               <span className="sr-only">Open menu</span>
-                               <MoreHorizontal className="h-4 w-4" />
-                             </Button>
-                           </DropdownMenuTrigger>
-                           <DropdownMenuContent align="end" className="w-[200px]">
-                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                             {NEXT[t.status] && (
-                               <DropdownMenuItem onClick={() => moveTicket(t, NEXT[t.status])}>
-                                 Mark as {NEXT[t.status].replace("_", " ")}
-                               </DropdownMenuItem>
-                             )}
-                             <DropdownMenuSeparator />
-                             {t.po_header_id ? (
-                               <DropdownMenuItem disabled className="text-emerald-600 font-medium">
-                                 Purchase Order Exists
-                               </DropdownMenuItem>
-                             ) : t.vendor_id && t.estimated_cost ? (
-                               <DropdownMenuItem onClick={() => setPoFor(t)} className="text-emerald-600 font-medium">
-                                 Create Purchase Order
-                               </DropdownMenuItem>
-                             ) : (
-                               <DropdownMenuItem disabled className="text-slate-400">
-                                 Requires vendor & cost for PO
-                               </DropdownMenuItem>
-                             )}
-                           </DropdownMenuContent>
-                         </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+        <div>
+          <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Description
+          </p>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {ticket.description || "No description was provided."}
+          </p>
+        </div>
+
+        {/* ------------------------------------------------ vendor + spend */}
+        <Card className="border-brass/30 bg-brass/[0.04]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-semibold">
+                <Building2 className="h-4 w-4 text-brass" />
+                Vendor &amp; spend
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Assigning a vendor moves this ticket into the money-out cycle.
+              </p>
+            </div>
+            {canManage && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setAssigning((a) => !a)}
+              >
+                {ticket.vendor_id ? "Reassign" : "Assign vendor"}
+              </Button>
             )}
           </div>
+
+          {assigning && (
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
+              <div>
+                <Label htmlFor="v">Vendor</Label>
+                <Select
+                  id="v"
+                  value={vendorId}
+                  onChange={(e) => setVendorId(e.target.value)}
+                >
+                  <option value="">Choose a vendor…</option>
+                  {vendors
+                    .filter((v) => v.status === "ACTIVE")
+                    .map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} — {v.category}
+                      </option>
+                    ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="e">Estimate ($)</Label>
+                <Input
+                  id="e"
+                  type="number"
+                  value={estimate}
+                  onChange={(e) => setEstimate(e.target.value)}
+                  placeholder="450"
+                />
+              </div>
+              <Button onClick={assignVendor} disabled={!vendorId}>
+                Assign
+              </Button>
+            </div>
+          )}
+
+          {ticket.po_header_id && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-success/30 bg-success/8 px-3 py-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+              <p className="text-xs text-muted-foreground">
+                A purchase order has been raised from this ticket and is in the
+                approval chain. The link is two-way — the order number is stored
+                on this ticket.
+              </p>
+            </div>
+          )}
+
+          {!ticket.vendor_id && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              No vendor assigned. Vendors have no login in the current build, so
+              assignment is recorded here and the notification goes to the staff
+              owner — see the Roles &amp; Flow screen for the three options.
+            </p>
+          )}
         </Card>
-      </motion.div>
-      )}
 
-      {/* Slide-out Sheet for New Ticket */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="sm:max-w-md w-full overflow-y-auto border-l-0 shadow-2xl">
-          <SheetHeader className="mb-6">
-            <SheetTitle className="text-2xl font-bold text-slate-900">New Service Ticket</SheetTitle>
-            <SheetDescription>
-              Create a new request for the service desk team.
-            </SheetDescription>
-          </SheetHeader>
-          <form onSubmit={create} className="space-y-6">
-            <div className="space-y-2">
-               <Label className="text-sm font-semibold text-slate-700">Subject</Label>
-               <Input 
-                 placeholder="e.g. Broken sprinkler head"
-                 value={form.subject}
-                 onChange={(e) => setForm({ ...form, subject: e.target.value })} 
-                 required 
-                 className="bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
-               />
-            </div>
-            
-            <div className="space-y-2">
-               <Label className="text-sm font-semibold text-slate-700">Description</Label>
-               <Input 
-                 placeholder="Additional context..."
-                 value={form.description}
-                 onChange={(e) => setForm({ ...form, description: e.target.value })} 
-                 className="bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
-               />
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold text-slate-700">Category</Label>
-                <Select value={form.category} onValueChange={(val) => setForm({ ...form, category: val })}>
-                  <SelectTrigger className="bg-slate-50 border-slate-200"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["MAINTENANCE", "COMPLAINT", "REQUEST", "VIOLATION"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold text-slate-700">Priority</Label>
-                <Select value={form.priority} onValueChange={(val) => setForm({ ...form, priority: val })}>
-                  <SelectTrigger className="bg-slate-50 border-slate-200"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["LOW", "MEDIUM", "HIGH"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
-               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Financial Information</h3>
-               <div className="space-y-2">
-                 <Label className="text-sm font-semibold text-slate-700">Vendor (Optional)</Label>
-                 <Select value={form.vendor_id} onValueChange={(val) => setForm({ ...form, vendor_id: val })}>
-                   <SelectTrigger className="bg-white border-slate-200"><SelectValue placeholder="Select vendor..." /></SelectTrigger>
-                   <SelectContent>
-                     <SelectItem value="none">None</SelectItem>
-                     {vendors.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
-                   </SelectContent>
-                 </Select>
-               </div>
-               <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-slate-700">Estimated cost</Label>
-                  <div className="relative">
-                     <span className="absolute left-3 top-2.5 text-slate-400 font-medium">$</span>
-                     <Input 
-                       type="number" step="0.01" 
-                       value={form.estimated_cost}
-                       onChange={(e) => setForm({ ...form, estimated_cost: e.target.value })} 
-                       className="pl-7 bg-white border-slate-200 focus-visible:ring-indigo-500 font-mono"
-                     />
-                  </div>
-               </div>
-            </div>
-            
-            <SheetFooter className="mt-8 pt-6 border-t border-slate-100 flex-col sm:flex-row gap-3 sm:space-x-0">
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="w-full sm:w-auto">Cancel</Button>
-              <Button type="submit" disabled={busy} className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white">
-                 {busy ? "Saving…" : "Create Ticket"}
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
+        {/* ---------------------------------------------------- attachments */}
+        <div>
+          <p className="mb-2 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <Paperclip className="h-3.5 w-3.5" />
+            Attachments
+          </p>
+          <label className="surface-grid flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-4 py-6 text-center transition-colors hover:border-primary/50 hover:bg-accent/30">
+            <Upload className="mb-1.5 h-5 w-5 text-muted-foreground" />
+            <span className="text-xs font-medium">
+              Drop photos or a quote here, or click to choose
+            </span>
+            <span className="mt-0.5 text-2xs text-muted-foreground">
+              Held in the browser for this demo
+            </span>
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const list = Array.from(e.target.files ?? []).map((f) => ({
+                  name: f.name,
+                  size: f.size,
+                }));
+                setFiles((prev) => [...prev, ...list]);
+              }}
+            />
+          </label>
+          {files.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {files.map((f, i) => (
+                <li
+                  key={i}
+                  className="flex items-center justify-between rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs"
+                >
+                  <span className="truncate">{f.name}</span>
+                  <span className="tabular shrink-0 text-muted-foreground">
+                    {(f.size / 1024).toFixed(0)} KB
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      {/* Slide-out Sheet for Create PO */}
-      <Sheet open={!!poFor} onOpenChange={(val) => !val && setPoFor(null)}>
-        <SheetContent className="sm:max-w-md w-full overflow-y-auto border-l-0 shadow-2xl">
-          <SheetHeader className="mb-6">
-            <SheetTitle className="text-2xl font-bold text-slate-900">Generate Purchase Order</SheetTitle>
-            <SheetDescription>
-              Creating a PO from ticket <span className="font-mono text-slate-800">{poFor?.ticket_number}</span>
-            </SheetDescription>
-          </SheetHeader>
-          <form onSubmit={createPo} className="space-y-6">
-            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
-               <div className="text-emerald-800 font-medium mb-1">Authorization Details</div>
-               <p className="text-sm text-emerald-600/80">
-                 Spawns a purchase order for <span className="font-mono font-bold">${Number(poFor?.estimated_cost || 0).toFixed(2)}</span> against the
-                 chosen expense account.
-               </p>
-            </div>
-            
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-slate-700">Expense account (KFF)</Label>
-              <Select value={poAccount} onValueChange={(val) => setPoAccount(val)} required>
-                <SelectTrigger className="bg-slate-50 border-slate-200 font-mono"><SelectValue placeholder="Select account…" /></SelectTrigger>
-                <SelectContent>
-                  {combos.filter((c) => c.account_type === "E").map((c) => (
-                    <SelectItem key={c.id} value={c.id} className="font-mono">{c.concatenated_segments}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <SheetFooter className="mt-8 pt-6 border-t border-slate-100 flex-col sm:flex-row gap-3 sm:space-x-0">
-              <Button type="button" variant="outline" onClick={() => setPoFor(null)} className="w-full sm:w-auto">Cancel</Button>
-              <Button type="submit" disabled={busy} className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white">
-                 {busy ? "Generating…" : "Generate PO"}
+        {/* -------------------------------------------------------- history */}
+        <div>
+          <p className="mb-3 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <MessageSquare className="h-3.5 w-3.5" />
+            Activity &amp; conversation
+          </p>
+          <Timeline events={events} />
+
+          {canManage && (
+            <div className="mt-4 flex gap-2">
+              <Textarea
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                placeholder="Add a note to the thread…"
+                className="min-h-[64px]"
+              />
+              <Button
+                onClick={send}
+                disabled={!reply.trim()}
+                className="self-end"
+              >
+                <Send className="h-4 w-4" />
               </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
-    </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </DetailSheet>
+  );
+}
+
+/* ========================================================= new ticket modal */
+
+function NewTicketModal({
+  homeowners, onClose, onCreate,
+}: {
+  homeowners: any[];
+  onClose: () => void;
+  onCreate: (b: any) => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    subject: "",
+    description: "",
+    category: "MAINTENANCE",
+    priority: "MEDIUM",
+    homeowner_id: homeowners[0]?.id ?? "",
+  });
+  const [busy, setBusy] = useState(false);
+
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Raise a service ticket"
+      description="This creates a real record in the demo — it will appear in the list and post a notification to the inbox."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!form.subject.trim() || busy}
+            onClick={async () => {
+              setBusy(true);
+              await onCreate(form);
+              setBusy(false);
+            }}
+          >
+            {busy ? "Creating…" : "Create ticket"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="s">Subject</Label>
+          <Input
+            id="s"
+            value={form.subject}
+            onChange={(e) => set("subject", e.target.value)}
+            placeholder="e.g. Water leaking from lobby ceiling"
+            autoFocus
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="c">Category</Label>
+            <Select
+              id="c"
+              value={form.category}
+              onChange={(e) => set("category", e.target.value)}
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c.replace(/_/g, " ")}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="p">Priority</Label>
+            <Select
+              id="p"
+              value={form.priority}
+              onChange={(e) => set("priority", e.target.value)}
+            >
+              {PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="u">Unit / homeowner</Label>
+          <Select
+            id="u"
+            value={form.homeowner_id}
+            onChange={(e) => set("homeowner_id", e.target.value)}
+          >
+            {homeowners.map((h) => (
+              <option key={h.id} value={h.id}>
+                Unit {h.property_unit} — {h.first_name} {h.last_name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="d">Description</Label>
+          <Textarea
+            id="d"
+            value={form.description}
+            onChange={(e) => set("description", e.target.value)}
+            placeholder="What is happening, where, and when was it first noticed?"
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }

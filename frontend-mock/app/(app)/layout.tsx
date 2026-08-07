@@ -1,303 +1,450 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useAuth } from "../providers";
-import { apiFetch } from "@/lib/api";
-import type { Membership, Tenant } from "@/lib/types";
-import { Spinner } from "@/components/ui";
-
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import {
-  LayoutDashboard, Ticket, Users, Files, Bell, ListTree, Tags,
-  Building2, Settings, PieChart, Landmark, Wallet, ShoppingCart,
-  PackageCheck, Lock, FileText, CreditCard, HandCoins, Receipt,
-  PhoneCall, Mail, AlertCircle, BookOpen, CalendarOff, CheckSquare,
-  UserCog, Home, BadgeDollarSign, Timer, BarChart3, Database,
-  ShieldCheck, Presentation, Menu, X
+  AlertCircle, BadgeDollarSign, Bell, BookOpen, Building2, CalendarOff,
+  CheckSquare, CreditCard, Database, FileText, Files, HandCoins, Home,
+  LayoutDashboard, ListTree, Lock, LogOut, Mail, Menu, Network, PackageCheck,
+  PhoneCall, PieChart, Presentation, Receipt, RefreshCw, Repeat, Landmark,
+  Settings, ShieldCheck, ShoppingCart, Tags, Ticket, Timer, UserCog, Users,
+  Wallet, X, ChevronDown, Check, BarChart3,
 } from "lucide-react";
+import { useAuth } from "../providers";
+import { PERSONAS } from "@/lib/mock-data/seed";
+import { ROLES } from "@/lib/rbac";
+import { resetStore } from "@/lib/mock-data/store";
+import { useApi, useMutate } from "@/lib/use-api";
+import { Badge, Button, Spinner } from "@/components/ui";
+import { ThemeToggle } from "@/components/theme";
+import { relTime } from "@/components/app/kit";
+import { cn } from "@/lib/utils";
 
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-
-type NavItem = { href: string; label: string; icon: React.ElementType; superadmin?: boolean };
-type NavGroup = { title: string; items: NavItem[] };
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    title: "Core Operations",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/service-desk", label: "Service Desk", icon: Ticket },
-      { href: "/residents", label: "Residents", icon: Users },
-      { href: "/documents", label: "Documents", icon: Files },
-      { href: "/notifications", label: "Notifications", icon: Bell },
-    ],
-  },
-  {
-    title: "Financial Setup",
-    items: [
-      { href: "/coa", label: "Chart of Accounts", icon: ListTree },
-      { href: "/value-sets", label: "Value Sets", icon: Tags },
-      { href: "/vendors", label: "Vendors", icon: Building2 },
-      { href: "/ap-setup", label: "AP Setup", icon: Settings },
-      { href: "/cash", label: "Cash & Bank Rec", icon: Wallet },
-      { href: "/budgets", label: "Budgets", icon: PieChart },
-      { href: "/fixed-assets", label: "Fixed Assets", icon: Landmark },
-    ],
-  },
-  {
-    title: "Accounts Payable",
-    items: [
-      { href: "/purchasing", label: "Purchasing (PO)", icon: ShoppingCart },
-      { href: "/receiving", label: "Receiving", icon: PackageCheck },
-      { href: "/encumbrance", label: "Encumbrances", icon: Lock },
-      { href: "/payables", label: "Payables (AP)", icon: FileText },
-      { href: "/payments", label: "Payments (AP)", icon: CreditCard },
-    ],
-  },
-  {
-    title: "Accounts Receivable",
-    items: [
-      { href: "/ar-billing", label: "AR Billing", icon: Receipt },
-      { href: "/collections", label: "Collections", icon: PhoneCall },
-      { href: "/statements", label: "AR Statements", icon: Mail },
-      { href: "/dunning", label: "Dunning", icon: AlertCircle },
-      { href: "/receivables", label: "Receivables (AR)", icon: HandCoins },
-    ],
-  },
-  {
-    title: "General Ledger",
-    items: [
-      { href: "/gl", label: "General Ledger", icon: BookOpen },
-      { href: "/periods", label: "Period Close", icon: CalendarOff },
-      { href: "/approvals", label: "Approvals", icon: CheckSquare },
-    ],
-  },
-  {
-    title: "System Admin",
-    items: [
-      { href: "/users", label: "Users & Roles", icon: UserCog },
-      { href: "/tenants", label: "HOAs (Tenants)", icon: Home, superadmin: true },
-      { href: "/gateway", label: "Payment Gateway", icon: BadgeDollarSign },
-      { href: "/scheduler", label: "Scheduled Jobs", icon: Timer },
-      { href: "/reports", label: "Reports", icon: BarChart3 },
-      { href: "/board", label: "Board Dashboard", icon: Presentation },
-      { href: "/migration", label: "Data Migration", icon: Database },
-      { href: "/go-live", label: "Go-Live & Compliance", icon: ShieldCheck },
-    ],
-  },
-];
-
-function SidebarNav({ pathname, user }: { pathname: string; user: any }) {
-  return (
-    <nav className="flex-1 overflow-y-auto px-3 py-2">
-      <Accordion type="multiple" className="w-full" defaultValue={["Core Operations", "Financial Setup", "Accounts Payable", "Accounts Receivable", "General Ledger", "System Admin"]}>
-        {NAV_GROUPS.map((group) => {
-          const filteredItems = group.items.filter((n) => !n.superadmin || user.isSuperadmin);
-          if (filteredItems.length === 0) return null;
-          return (
-            <AccordionItem key={group.title} value={group.title} className="border-b-0">
-              <AccordionTrigger className="px-2 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700 hover:no-underline">
-                {group.title}
-              </AccordionTrigger>
-              <AccordionContent className="pb-2 pt-0">
-                <div className="flex flex-col space-y-1">
-                  {filteredItems.map((n) => {
-                    const active = pathname === n.href || pathname.startsWith(n.href + "/");
-                    const Icon = n.icon;
-                    return (
-                      <Link
-                        key={n.href}
-                        href={n.href}
-                        className={`flex items-center gap-3 rounded-md px-3 py-2 text-[13px] font-medium transition-all duration-200 ${
-                          active
-                            ? "bg-brand-50 text-brand-700 shadow-sm border border-brand-100/50"
-                            : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900"
-                        }`}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {n.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          );
-        })}
-      </Accordion>
-    </nav>
-  );
-}
+const ICONS: Record<string, React.ElementType> = {
+  "/dashboard": LayoutDashboard,
+  "/service-desk": Ticket,
+  "/residents": Users,
+  "/documents": Files,
+  "/notifications": Bell,
+  "/vendors": Building2,
+  "/payables": FileText,
+  "/payments": CreditCard,
+  "/purchasing": ShoppingCart,
+  "/receiving": PackageCheck,
+  "/encumbrance": Lock,
+  "/ap-setup": Settings,
+  "/ar-billing": Receipt,
+  "/receivables": HandCoins,
+  "/collections": PhoneCall,
+  "/statements": Mail,
+  "/dunning": AlertCircle,
+  "/coa": ListTree,
+  "/value-sets": Tags,
+  "/budgets": PieChart,
+  "/gl": BookOpen,
+  "/periods": CalendarOff,
+  "/cash": Wallet,
+  "/fixed-assets": Landmark,
+  "/approvals": CheckSquare,
+  "/users": UserCog,
+  "/tenants": Home,
+  "/gateway": BadgeDollarSign,
+  "/scheduler": Timer,
+  "/reports": BarChart3,
+  "/board": Presentation,
+  "/migration": Database,
+  "/go-live": ShieldCheck,
+  "/roles-and-flow": Network,
+  "/portal/login": Home,
+};
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { ready, token, user, memberships, activeTenantId, setActiveTenant, logout } =
-    useAuth();
+  const auth = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const [saTenants, setSaTenants] = useState<Membership[]>([]);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    if (ready && !token) router.replace("/login");
-  }, [ready, token, router]);
+    if (auth.ready && !auth.signedIn) router.replace("/login");
+  }, [auth.ready, auth.signedIn, router]);
 
-  // Force a password change on first login before anything else is usable.
-  useEffect(() => {
-    if (ready && token && user?.mustChangePassword && pathname !== "/change-password") {
-      router.replace("/change-password");
-    }
-  }, [ready, token, user?.mustChangePassword, pathname, router]);
+  useEffect(() => setMobileOpen(false), [pathname]);
 
-  // SUPERADMIN has no memberships — load all HOAs to populate the switcher.
-  // Reloads on navigation and on a "casa:tenants-changed" event (fired after an
-  // HOA is created) so a newly created HOA appears in the switcher immediately.
-  useEffect(() => {
-    if (!token || !user?.isSuperadmin) return;
-    let cancelled = false;
-    const loadSaTenants = () => {
-      apiFetch<Tenant[]>("/tenants", { token })
-        .then((rows) => {
-          if (cancelled) return;
-          setSaTenants(
-            rows.map((t) => ({
-              tenant_id: t.id,
-              tenant_name: t.name,
-              tenant_slug: t.slug,
-              role_code: "SUPERADMIN",
-              role_name: "Super Administrator",
-            }))
-          );
-          if (!activeTenantId && rows[0]) setActiveTenant(rows[0].id);
-        })
-        .catch(() => undefined);
-    };
-    loadSaTenants();
-    window.addEventListener("casa:tenants-changed", loadSaTenants);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("casa:tenants-changed", loadSaTenants);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, user?.isSuperadmin, pathname]);
-
-  if (!ready || !token || !user) {
+  if (!auth.ready || !auth.signedIn) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Spinner />
+        <Spinner label="Preparing the demo…" />
       </div>
     );
   }
 
-  const tenantOptions = user.isSuperadmin ? saTenants : memberships;
-  const activeName =
-    tenantOptions.find((m) => m.tenant_id === activeTenantId)?.tenant_name ||
-    (user.isSuperadmin ? "Loading HOAs…" : "Select an HOA");
-
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50/30">
-      {/* Sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200/60 bg-white/50 backdrop-blur-xl md:flex z-20">
-        <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            CH
-          </div>
-          <div>
-            <div className="text-sm font-bold text-slate-800">Casa Harmony AI</div>
-            <div className="text-[11px] text-slate-400">HOA ERP · v2</div>
-          </div>
-        </div>
-        <SidebarNav pathname={pathname} user={user} />
-        <div className="border-t border-slate-200 p-3 text-[11px] text-slate-400">
-          SOC 2 · PCI DSS · ISO 27001 · CCPA
-        </div>
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* desktop sidebar */}
+      <aside className="hidden w-[248px] shrink-0 flex-col border-r bg-sidebar lg:flex">
+        <SidebarContent />
       </aside>
 
-      {/* Main */}
-      <div className="flex min-w-0 flex-1 flex-col relative">
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/60 bg-white/75 backdrop-blur-lg px-4 md:px-8 py-3 shadow-sm gap-4">
-          <div className="flex items-center gap-3">
-            {/* Mobile Menu Toggle */}
-            <div className="md:hidden">
-              <Sheet>
-                <SheetTrigger asChild>
-                  <button className="flex items-center justify-center rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700">
-                    <Menu className="h-5 w-5" />
-                  </button>
-                </SheetTrigger>
-                <SheetContent side="left" className="w-72 p-0 flex flex-col bg-white">
-                  <SheetHeader className="border-b border-slate-200 px-5 py-4 text-left">
-                    <SheetTitle className="flex items-center gap-2">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">CH</div>
-                      <div>
-                        <div className="text-sm font-bold text-slate-800">Casa Harmony AI</div>
-                        <div className="text-[11px] text-slate-400">HOA ERP · v2</div>
-                      </div>
-                    </SheetTitle>
-                  </SheetHeader>
-                  <SidebarNav pathname={pathname} user={user} />
-                </SheetContent>
-              </Sheet>
-            </div>
-            
-            <label className="hidden sm:block text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Active HOA
-            </label>
-            <select
-              value={activeTenantId ?? ""}
-              onChange={(e) => setActiveTenant(e.target.value)}
-              className="max-w-[140px] sm:max-w-none rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-700 shadow-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-100 truncate"
-            >
-              {tenantOptions.length === 0 && (
-                <option value="">{activeName}</option>
-              )}
-              {tenantOptions.map((m) => (
-                <option key={m.tenant_id} value={m.tenant_id}>
-                  {m.tenant_name} · {m.role_code}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-medium text-slate-700">{user.email}</div>
-              <div className="text-[11px] text-slate-400">
-                {user.isSuperadmin ? "SUPERADMIN" : "Tenant user"}
-              </div>
-            </div>
-            <a
-              href="/change-password"
-              className="hidden sm:inline-flex rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              Change password
-            </a>
+      {/* mobile drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 flex lg:hidden">
+          <div
+            className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside className="relative flex w-[264px] flex-col border-r bg-sidebar">
             <button
-              onClick={() => {
-                logout();
-                router.replace("/login");
-              }}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+              onClick={() => setMobileOpen(false)}
+              className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+              aria-label="Close menu"
             >
-              Logout
+              <X className="h-4 w-4" />
             </button>
-          </div>
-        </header>
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 relative">
-          <div className="absolute inset-0 bg-grid-slate-100/50 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.5))] -z-10" />
+            <SidebarContent />
+          </aside>
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar onMenu={() => setMobileOpen(true)} />
+        <main className="flex-1 overflow-y-auto scroll-thin px-5 py-6 lg:px-8">
           {children}
         </main>
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ sidebar */
+
+function SidebarContent() {
+  const { nav, tenant, persona, role } = useAuth();
+  const pathname = usePathname();
+
+  return (
+    <>
+      <div className="flex items-center gap-2.5 border-b px-4 py-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
+          CH
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold leading-tight">
+            Casa Harmony
+          </p>
+          <p className="truncate text-2xs text-muted-foreground">
+            {tenant?.name ?? "—"}
+          </p>
+        </div>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto scroll-thin px-2.5 py-3">
+        {nav.map((group) => (
+          <div key={group.title} className="mb-4">
+            <p className="mb-1 px-2 text-2xs font-semibold uppercase tracking-[0.1em] text-muted-foreground/70">
+              {group.title}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const Icon = ICONS[item.href] ?? LayoutDashboard;
+                const active =
+                  pathname === item.href ||
+                  pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors",
+                      active
+                        ? "bg-primary/12 text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      <div className="border-t p-3">
+        <div className="rounded-lg bg-muted/60 px-2.5 py-2">
+          <p className="truncate text-xs font-semibold">{persona?.full_name}</p>
+          <p className="truncate text-2xs text-muted-foreground">
+            {role?.name}
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------- topbar */
+
+function TopBar({ onMenu }: { onMenu: () => void }) {
+  const {
+    tenants, tenant, setActiveTenant, persona, role, switchPersona, signOut,
+    refresh,
+  } = useAuth();
+  const router = useRouter();
+  const [tenantOpen, setTenantOpen] = useState(false);
+  const [personaOpen, setPersonaOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+
+  const { data: notifications } = useApi<any[]>("/notifications", []);
+  const { mutate } = useMutate();
+  const unread = useMemo(
+    () => notifications.filter((n) => !n.is_read).length,
+    [notifications]
+  );
+
+  return (
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur lg:px-6">
+      <button
+        onClick={onMenu}
+        className="rounded-md p-2 text-muted-foreground hover:bg-muted lg:hidden"
+        aria-label="Open menu"
+      >
+        <Menu className="h-4 w-4" />
+      </button>
+
+      {/* community switcher */}
+      <div className="relative">
+        <button
+          onClick={() => setTenantOpen((o) => !o)}
+          className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+        >
+          <Building2 className="h-3.5 w-3.5 text-primary" />
+          <span className="max-w-[9rem] truncate">{tenant?.name}</span>
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+        {tenantOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setTenantOpen(false)} />
+            <div className="absolute left-0 z-20 mt-1.5 w-72 animate-fade-in overflow-hidden rounded-lg border bg-popover shadow-xl">
+              <p className="border-b px-3 py-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Communities you can access
+              </p>
+              {tenants.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setActiveTenant(t.id);
+                    setTenantOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 border-b px-3 py-2.5 text-left last:border-0 transition-colors",
+                    t.id === tenant?.id ? "bg-accent" : "hover:bg-muted/60"
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{t.name}</p>
+                    <p className="truncate text-2xs text-muted-foreground">
+                      {t.kind} · {t.city}, {t.state}
+                    </p>
+                  </div>
+                  {t.id === tenant?.id && (
+                    <Check className="h-4 w-4 shrink-0 text-primary" />
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="flex-1" />
+
+      {/* demo controls */}
+      <button
+        onClick={() => {
+          resetStore();
+          refresh();
+        }}
+        title="Reset all demo data to its original state"
+        className="hidden items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground sm:flex"
+      >
+        <RefreshCw className="h-3.5 w-3.5" />
+        Reset demo
+      </button>
+
+      <ThemeToggle />
+
+      {/* notifications */}
+      <div className="relative">
+        <button
+          onClick={() => setBellOpen((o) => !o)}
+          className="relative rounded-lg border bg-card p-2 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+          aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}
+        >
+          <Bell className="h-4 w-4" />
+          {unread > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+              {unread}
+            </span>
+          )}
+        </button>
+        {bellOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setBellOpen(false)} />
+            <div className="absolute right-0 z-20 mt-1.5 w-[22rem] animate-fade-in overflow-hidden rounded-lg border bg-popover shadow-xl">
+              <div className="flex items-center justify-between border-b px-3 py-2">
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Inbox
+                </p>
+                {unread > 0 && (
+                  <button
+                    onClick={() => mutate("/notifications/read-all", "POST")}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Mark all read
+                  </button>
+                )}
+              </div>
+              <div className="max-h-80 overflow-y-auto scroll-thin">
+                {notifications.slice(0, 8).map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => mutate(`/notifications/${n.id}/read`, "POST")}
+                    className={cn(
+                      "flex w-full gap-2.5 border-b px-3 py-2.5 text-left last:border-0 transition-colors hover:bg-muted/60",
+                      !n.is_read && "bg-primary/[0.06]"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                        n.is_read ? "bg-transparent" : "bg-primary"
+                      )}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs leading-relaxed text-foreground">
+                        {n.message}
+                      </span>
+                      <span className="mt-0.5 flex items-center gap-1.5">
+                        <Badge tone="neutral" className="text-[10px]">
+                          {n.category}
+                        </Badge>
+                        <span className="text-2xs text-muted-foreground">
+                          {relTime(n.created_at)}
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                ))}
+                {notifications.length === 0 && (
+                  <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    Nothing in the inbox.
+                  </p>
+                )}
+              </div>
+              <Link
+                href="/notifications"
+                onClick={() => setBellOpen(false)}
+                className="block border-t px-3 py-2 text-center text-xs font-medium text-primary hover:bg-muted/60"
+              >
+                View all notifications
+              </Link>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* persona switcher */}
+      <div className="relative">
+        <button
+          onClick={() => setPersonaOpen((o) => !o)}
+          className="flex items-center gap-2 rounded-lg border bg-card py-1 pl-1 pr-2 shadow-sm transition-colors hover:bg-muted"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-2xs font-bold text-primary">
+            {persona?.full_name.split(" ").map((w) => w[0]).join("")}
+          </span>
+          <span className="hidden text-left sm:block">
+            <span className="block max-w-[8rem] truncate text-xs font-semibold leading-tight">
+              {persona?.full_name}
+            </span>
+            <span className="block max-w-[8rem] truncate text-[10px] leading-tight text-muted-foreground">
+              {persona?.role_code.replace(/_/g, " ")}
+            </span>
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+
+        {personaOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setPersonaOpen(false)} />
+            <div className="absolute right-0 z-20 mt-1.5 w-[21rem] animate-fade-in overflow-hidden rounded-lg border bg-popover shadow-xl">
+              <div className="border-b bg-muted/50 px-3 py-2">
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Switch role — the app re-renders instantly
+                </p>
+              </div>
+              <div className="max-h-96 overflow-y-auto scroll-thin">
+                {PERSONAS.map((p) => {
+                  const r = ROLES[p.role_code];
+                  const active = p.id === persona?.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        switchPersona(p.id);
+                        setPersonaOpen(false);
+                        router.push("/dashboard");
+                      }}
+                      className={cn(
+                        "flex w-full items-start gap-2.5 border-b px-3 py-2.5 text-left last:border-0 transition-colors",
+                        active ? "bg-accent" : "hover:bg-muted/60"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+                          active
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {p.full_name.split(" ").map((w) => w[0]).join("")}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-semibold">
+                            {p.full_name}
+                          </span>
+                          <Badge
+                            tone={r?.implemented ? "primary" : "warning"}
+                            className="text-[10px]"
+                          >
+                            {p.role_code.replace(/_/g, " ")}
+                          </Badge>
+                        </span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                          {p.title}
+                        </span>
+                      </span>
+                      {active && <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-primary" />}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => {
+                  signOut();
+                  router.replace("/login");
+                }}
+                className="flex w-full items-center gap-2 border-t px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Back to the sign-in screen
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </header>
   );
 }

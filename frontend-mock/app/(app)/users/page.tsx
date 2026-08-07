@@ -1,323 +1,301 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { Check, Building2, KeyRound, ShieldCheck, UserCog, Users, X } from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch } from "@/lib/api";
-import type { AppUser, Role } from "@/lib/types";
-import { Alert, Badge, Spinner } from "@/components/ui";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Label } from "@/components/ui/label";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Plus, Users as UsersIcon, ShieldAlert, KeyRound } from "lucide-react";
+import { useApi } from "@/lib/use-api";
+import { TENANTS } from "@/lib/mock-data/seed";
+import { ALL_PERMISSIONS, PERMISSIONS, ROLES, permsFor, roleHas } from "@/lib/rbac";
+import { Badge, Button, Card } from "@/components/ui";
+import {
+  Column, DataTable, DetailSheet, Facts, PageHeader, PageShell, SectionGuide,
+  StatCard, StatGrid, Toolbar,
+} from "@/components/app/kit";
+import { cn } from "@/lib/utils";
 
 export default function UsersPage() {
-  const { token, activeTenantId } = useAuth();
-  const [users, setUsers] = useState<AppUser[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { persona } = useAuth();
+  const { data: users } = useApi<any[]>("/users", []);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [roleTab, setRoleTab] = useState<string>("HOA_ADMIN");
 
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [userForm, setUserForm] = useState({ email: "", full_name: "", password: "" });
-  const [grant, setGrant] = useState({ user_id: "", role_id: "" });
+  const user = users.find((u) => u.id === selected) ?? null;
 
-  async function load() {
-    if (!token || !activeTenantId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [u, r] = await Promise.all([
-        apiFetch<AppUser[]>("/users", { token, tenantId: activeTenantId }),
-        apiFetch<Role[]>("/roles", { token, tenantId: activeTenantId }),
-      ]);
-      setUsers(u);
-      setRoles(r);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return users.filter(
+      (u) =>
+        !q ||
+        u.full_name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        u.role_code.toLowerCase().includes(q)
+    );
+  }, [users, search]);
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activeTenantId]);
+  const columns: Column<any>[] = [
+    {
+      key: "name",
+      header: "Person",
+      render: (u) => (
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-2xs font-bold text-primary">
+            {u.full_name.split(" ").map((w: string) => w[0]).join("")}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate font-medium">{u.full_name}</p>
+            <p className="truncate text-2xs text-muted-foreground">{u.email}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "title",
+      header: "Job title",
+      render: (u) => <span className="text-xs text-muted-foreground">{u.title}</span>,
+    },
+    {
+      key: "role",
+      header: "Role",
+      render: (u) => (
+        <Badge tone={ROLES[u.role_code]?.implemented ? "primary" : "warning"}>
+          {u.role_code.replace(/_/g, " ")}
+        </Badge>
+      ),
+    },
+    {
+      key: "communities",
+      header: "Communities",
+      render: (u) => (
+        <div className="flex flex-wrap gap-1">
+          {u.tenant_ids.map((id: string) => (
+            <Badge key={id} tone="neutral" className="text-[10px]">
+              {TENANTS.find((t) => t.id === id)?.name}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: "perms",
+      header: "Permissions",
+      numeric: true,
+      render: (u) => (
+        <span className="text-xs text-muted-foreground">
+          {u.is_superadmin ? "All" : permsFor(u.role_code).length}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (u) => (u.is_active ? <Badge tone="success">Active</Badge> : <Badge tone="neutral">Disabled</Badge>),
+    },
+  ];
 
-  async function createUser(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await apiFetch("/users", {
-        method: "POST",
-        token,
-        tenantId: activeTenantId,
-        body: {
-          email: userForm.email,
-          full_name: userForm.full_name || undefined,
-          password: userForm.password,
-        },
-      });
-      setSheetOpen(false);
-      setUserForm({ email: "", full_name: "", password: "" });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create user");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function grantMembership(e: React.FormEvent) {
-    e.preventDefault();
-    if (!grant.user_id || !grant.role_id) return;
-    setBusy(true);
-    setError(null);
-    setMsg(null);
-    try {
-      await apiFetch("/memberships", {
-        method: "POST",
-        token,
-        tenantId: activeTenantId,
-        body: { user_id: grant.user_id, role_id: grant.role_id },
-      });
-      setMsg("Membership granted.");
-      setGrant({ user_id: "", role_id: "" });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to grant membership");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const activeRole = ROLES[roleTab];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+    <PageShell>
+      <PageHeader
+        eyebrow="Administration"
+        title="Users & Roles"
+        description="Staff accounts and what each one is allowed to do. A person has one login for the whole platform; their powers are granted per community."
+      />
+
+      <SectionGuide
+        what="The access control centre. Every staff member has a single global login, and a separate grant — called a membership — for each community they work on. That grant carries the role, and the role carries the permissions."
+        who="Only roles holding the user-management permission can open this screen. Accountants deliberately cannot — try switching to David Lin and it vanishes from the menu."
+        how={[
+          "A person is created once with an email address and must set their own password on first sign-in.",
+          "They are then granted access to one or more communities, each with its own role.",
+          "The role decides everything: which menu items appear, which buttons are enabled, and which requests the server will accept.",
+          "One person can be an administrator in one community and read-only in another.",
+          "Removing a membership removes access to that community without deleting the person.",
+        ]}
+        flow="This screen governs every other screen. Permissions granted here are checked on every single request the application makes."
+      />
+
+      <StatGrid>
+        <StatCard label="Staff accounts" value={users.length} tone="primary" icon={Users} />
+        <StatCard label="Roles in use" value={new Set(users.map((u) => u.role_code)).size} icon={ShieldCheck} />
+        <StatCard label="Communities" value={TENANTS.length} icon={Building2} />
+        <StatCard label="Permissions defined" value={ALL_PERMISSIONS.length} icon={KeyRound} />
+      </StatGrid>
+
+      <Toolbar search={search} onSearch={setSearch} placeholder="Search staff by name, email or role…" />
+
+      <DataTable rows={filtered} columns={columns} onRowClick={(u) => setSelected(u.id)} />
+
+      {/* ------------------------------------------------- role comparison */}
+      <section className="space-y-3">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Users &amp; Roles</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Manage users and grant HOA memberships with Role-Based Access Control.
+          <h2 className="text-sm font-semibold uppercase tracking-wider">
+            What each role can do
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            The full permission set behind every role, exactly as the server
+            enforces it. Greyed entries are not granted.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button onClick={() => setSheetOpen(true)} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
-            <Plus className="h-4 w-4" /> New User
-          </Button>
-        </div>
-      </div>
 
-      {error && <Alert kind="error">{error}</Alert>}
-      {msg && <Alert kind="success">{msg}</Alert>}
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 shadow-sm border-slate-200/60 rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg">
-          <CardHeader className="bg-slate-50/50 border-b border-slate-100/50 backdrop-blur-sm">
-            <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-              <UsersIcon className="h-4 w-4 text-slate-400" /> Active Users
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              {loading ? (
-                <div className="flex justify-center p-12"><Spinner /></div>
-              ) : (
-                <Table>
-                  <TableHeader className="bg-slate-50/50">
-                    <TableRow>
-                      <TableHead className="font-semibold text-slate-600 pl-6">User</TableHead>
-                      <TableHead className="font-semibold text-slate-600">Role</TableHead>
-                      <TableHead className="font-semibold text-slate-600">Status</TableHead>
-                      <TableHead className="font-semibold text-slate-600 text-right pr-6"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} className="h-32 text-center text-slate-500 font-medium">
-                          No users found.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    {users.map((u) => (
-                      <TableRow key={u.id} className="hover:bg-slate-50 transition-colors group">
-                        <TableCell className="pl-6 py-4">
-                           <div className="font-semibold text-slate-800">{u.full_name || "—"}</div>
-                           <div className="text-sm text-slate-500">{u.email}</div>
-                        </TableCell>
-                        <TableCell>
-                          {u.is_superadmin ? (
-                             <Badge tone="O" className="bg-amber-50 text-amber-700 border-amber-200">SUPERADMIN</Badge>
-                          ) : (
-                             <span className="text-sm text-slate-400">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge tone={u.is_active ? "A" : "L"} className={u.is_active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""}>
-                            {u.is_active ? "Active" : "Disabled"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right pr-6">
-                           <DropdownMenu>
-                             <DropdownMenuTrigger asChild>
-                               <Button variant="ghost" className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                 <span className="sr-only">Open menu</span>
-                                 <MoreHorizontal className="h-4 w-4" />
-                               </Button>
-                             </DropdownMenuTrigger>
-                             <DropdownMenuContent align="end" className="w-[160px]">
-                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                               <DropdownMenuItem onClick={() => setGrant({...grant, user_id: u.id})}>
-                                 Assign Role
-                               </DropdownMenuItem>
-                               <DropdownMenuSeparator />
-                               <DropdownMenuItem disabled className="text-slate-400">
-                                 Edit User
-                               </DropdownMenuItem>
-                               <DropdownMenuItem disabled className="text-rose-500 font-medium">
-                                 {u.is_active ? "Disable User" : "Enable User"}
-                               </DropdownMenuItem>
-                             </DropdownMenuContent>
-                           </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.values(ROLES).map((r) => (
+            <button
+              key={r.code}
+              onClick={() => setRoleTab(r.code)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                roleTab === r.code
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:bg-muted"
               )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="space-y-6">
-          <Card className="shadow-sm border-slate-200/60 rounded-xl border-t-4 border-t-indigo-500 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-                 <ShieldAlert className="h-4 w-4 text-indigo-500" />
-                 Grant Membership
-              </CardTitle>
-              <CardDescription>Assign HOA roles to existing users.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={grantMembership} className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-slate-700">User</Label>
-                  <Select value={grant.user_id} onValueChange={(val) => setGrant({ ...grant, user_id: val })} required>
-                    <SelectTrigger className="bg-slate-50 border-slate-200">
-                      <SelectValue placeholder="Select user…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>{u.email}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-slate-700">Role</Label>
-                  <Select value={grant.role_id} onValueChange={(val) => setGrant({ ...grant, role_id: val })} required>
-                    <SelectTrigger className="bg-slate-50 border-slate-200 font-mono text-sm">
-                      <SelectValue placeholder="Select role…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roles.map((r) => (
-                        <SelectItem key={r.id} value={r.id} className="font-mono text-sm">{r.code}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white mt-2" disabled={busy || !grant.user_id || !grant.role_id}>
-                  {busy ? "Granting…" : "Grant Membership"}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-          
-          <Card className="shadow-sm border-slate-200/60 rounded-xl bg-slate-50/50 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-            <CardContent className="pt-6">
-               <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                 <KeyRound className="h-4 w-4" /> Available Roles
-               </h3>
-               <ul className="space-y-3 text-sm">
-                 {roles.map((r) => (
-                   <li key={r.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 shadow-sm">
-                     <span className="font-mono text-xs font-bold text-slate-700">{r.code}</span>
-                     <Badge tone="none" className={r.is_system ? "text-indigo-600 bg-indigo-50 border-indigo-200" : ""}>
-                        {r.is_system ? "system" : "custom"}
-                     </Badge>
-                   </li>
-                 ))}
-                 {roles.length === 0 && (
-                    <li className="text-center text-sm text-slate-400 py-4">No roles found</li>
-                 )}
-               </ul>
-            </CardContent>
-          </Card>
+            >
+              {r.code.replace(/_/g, " ")}
+              {!r.implemented && (
+                <span className="rounded bg-warning/20 px-1 text-[10px] text-warning">
+                  proposed
+                </span>
+              )}
+            </button>
+          ))}
         </div>
-      </div>
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="sm:max-w-md w-full overflow-y-auto border-l-0 shadow-2xl">
-          <SheetHeader className="mb-6">
-            <SheetTitle className="text-2xl font-bold text-slate-900">New User</SheetTitle>
-            <SheetDescription>
-              Create a new user account. They will need to be assigned a membership before they can access HOA resources.
-            </SheetDescription>
-          </SheetHeader>
-          <form onSubmit={createUser} className="space-y-6">
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-slate-700">Email Address</Label>
-              <Input
-                type="email"
-                placeholder="name@example.com"
-                value={userForm.email}
-                onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
-                className="bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
-                required
-              />
+        {activeRole && (
+          <Card padded={false}>
+            <div className="border-b px-5 py-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-semibold">{activeRole.name}</h3>
+                {!activeRole.implemented && (
+                  <Badge tone="warning">Not yet built on the server</Badge>
+                )}
+              </div>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                {activeRole.blurb}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">Scope:</span>{" "}
+                {activeRole.scope} ·{" "}
+                <span className="font-semibold text-foreground">Permissions:</span>{" "}
+                {activeRole.perms === "*" ? "all" : `${activeRole.perms.length} of ${ALL_PERMISSIONS.length}`}
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-slate-700">Full Name</Label>
-              <Input
-                placeholder="John Doe"
-                value={userForm.full_name}
-                onChange={(e) => setUserForm({ ...userForm, full_name: e.target.value })}
-                className="bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
-              />
+
+            <div className="grid grid-cols-1 divide-y border-b sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+              <div className="p-5">
+                <p className="mb-2.5 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-success">
+                  <Check className="h-3.5 w-3.5" /> Can do
+                </p>
+                <ul className="space-y-1.5">
+                  {activeRole.can.map((c) => (
+                    <li key={c} className="grid grid-cols-[14px_1fr] gap-2 text-sm text-muted-foreground">
+                      <Check className="mt-1 h-3.5 w-3.5 text-success" />
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="p-5">
+                <p className="mb-2.5 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-destructive">
+                  <X className="h-3.5 w-3.5" /> Cannot do
+                </p>
+                <ul className="space-y-1.5">
+                  {activeRole.cannot.map((c) => (
+                    <li key={c} className="grid grid-cols-[14px_1fr] gap-2 text-sm text-muted-foreground">
+                      <X className="mt-1 h-3.5 w-3.5 text-destructive/70" />
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold text-slate-700">Temporary Password</Label>
-              <Input
-                type="password"
-                placeholder="Min 8 characters"
-                value={userForm.password}
-                onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                minLength={8}
-                className="bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
-                required
-              />
+
+            <div className="p-5">
+              <p className="mb-2.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Every permission the server checks
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {ALL_PERMISSIONS.map((p) => {
+                  const granted = roleHas(activeRole.code, p);
+                  return (
+                    <code
+                      key={p}
+                      title={PERMISSIONS[p]?.[1]}
+                      className={cn(
+                        "rounded border px-1.5 py-0.5 font-mono text-[10px]",
+                        granted
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-border bg-muted text-muted-foreground/40 line-through"
+                      )}
+                    >
+                      {p}
+                    </code>
+                  );
+                })}
+              </div>
             </div>
-            <SheetFooter className="mt-8 pt-6 border-t border-slate-100 flex-col sm:flex-row gap-3 sm:space-x-0">
-              <Button type="button" variant="outline" onClick={() => setSheetOpen(false)} className="w-full sm:w-auto">
-                Cancel
-              </Button>
-              <Button type="submit" disabled={busy} className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white">
-                {busy ? "Creating…" : "Create User"}
-              </Button>
-            </SheetFooter>
-          </form>
-        </SheetContent>
-      </Sheet>
-    </div>
+          </Card>
+        )}
+      </section>
+
+      {user && (
+        <DetailSheet
+          open
+          onClose={() => setSelected(null)}
+          title={user.full_name}
+          subtitle={user.title}
+          badge={<Badge tone="primary">{user.role_code.replace(/_/g, " ")}</Badge>}
+          width="lg"
+        >
+          <div className="space-y-6">
+            <Facts
+              items={[
+                { label: "Email", value: user.email },
+                { label: "Role", value: ROLES[user.role_code]?.name },
+                { label: "Scope", value: ROLES[user.role_code]?.scope },
+                { label: "Platform superadmin", value: user.is_superadmin ? "Yes" : "No" },
+              ]}
+            />
+
+            <div>
+              <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Community memberships
+              </p>
+              <div className="space-y-2">
+                {user.tenant_ids.map((id: string) => {
+                  const t = TENANTS.find((x) => x.id === id);
+                  return (
+                    <div key={id} className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{t?.name}</p>
+                        <p className="truncate text-2xs text-muted-foreground">
+                          {t?.kind}
+                        </p>
+                      </div>
+                      <Badge tone="primary">{user.role_code.replace(/_/g, " ")}</Badge>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                One login, one password — but a separate role grant per
+                community. This is exactly how a management company operates.
+              </p>
+            </div>
+
+            {user.id === persona?.id && (
+              <Card className="border-primary/25 bg-accent/40">
+                <p className="text-sm font-semibold">This is you</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You are currently signed in as this person. Use the switcher
+                  in the top-right corner to see the application as someone
+                  else.
+                </p>
+              </Card>
+            )}
+          </div>
+        </DetailSheet>
+      )}
+    </PageShell>
   );
 }

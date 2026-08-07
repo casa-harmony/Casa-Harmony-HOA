@@ -1,168 +1,155 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { BarChart3, Download, FileSpreadsheet, FileText, Search } from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch, downloadFile } from "@/lib/api";
-import { Alert, Button, Card, Input, Label, Spinner } from "@/components/ui";
-
-interface BvaRow {
-  account: string;
-  fund: string;
-  type: string;
-  budget: string;
-  actual: string;
-  variance: string;
-}
+import { useApi } from "@/lib/use-api";
+import { downloadFile } from "@/lib/api";
+import { Alert, Badge, Button, Card, Label, Select } from "@/components/ui";
+import {
+  EmptyState, FilterChips, PageHeader, PageShell, SectionGuide, StatCard,
+  StatGrid, Toolbar,
+} from "@/components/app/kit";
 
 export default function ReportsPage() {
-  const { token, activeTenantId } = useAuth();
-  const [period, setPeriod] = useState("FEB-2026");
-  const [start, setStart] = useState("2026-01-01");
-  const [end, setEnd] = useState("2026-12-31");
-  const [taxYear, setTaxYear] = useState("2026");
-  const [error, setError] = useState<string | null>(null);
-  const [bva, setBva] = useState<BvaRow[] | null>(null);
-  const [loadingBva, setLoadingBva] = useState(false);
+  const { activeTenantId, token } = useAuth();
+  const { data: reports } = useApi<any[]>("/reports/catalog", []);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("ALL");
+  const [period, setPeriod] = useState("JUL-2026");
+  const [flash, setFlash] = useState<string | null>(null);
 
-  async function dl(path: string, filename: string) {
-    setError(null);
-    try {
-      await downloadFile(path, token!, activeTenantId!, filename);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Export failed");
-    }
+  const categories = useMemo(() => {
+    const m = new Map<string, number>();
+    reports.forEach((r) => m.set(r.category, (m.get(r.category) ?? 0) + 1));
+    return Array.from(m.entries());
+  }, [reports]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return reports.filter((r) => {
+      if (category !== "ALL" && r.category !== category) return false;
+      return (
+        !q ||
+        r.name.toLowerCase().includes(q) ||
+        r.description.toLowerCase().includes(q)
+      );
+    });
+  }, [reports, category, search]);
+
+  async function run(report: any, format: string) {
+    setFlash(`Generating ${report.name} for ${period}…`);
+    await downloadFile(
+      `/reports/${report.id}?period=${period}&format=${format}`,
+      token,
+      activeTenantId ?? "",
+      `${report.id}-${period}.${format.toLowerCase()}`
+    );
+    setFlash(
+      `${report.name} generated. The demo produces a placeholder file; the live server returns the real document.`
+    );
+    setTimeout(() => setFlash(null), 6000);
   }
-
-  async function loadBva() {
-    setLoadingBva(true);
-    setError(null);
-    try {
-      setBva(await apiFetch<BvaRow[]>(`/gl/budget-vs-actual?period=${encodeURIComponent(period)}`,
-        { token, tenantId: activeTenantId }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load Budget vs Actual");
-    } finally {
-      setLoadingBva(false);
-    }
-  }
-
-  const enc = encodeURIComponent;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-slate-800">Reports</h1>
-        <p className="text-sm text-slate-500">
-          Audit-ready financial and operational reports, fund-segmented (USD).
-        </p>
-      </div>
-      {error && <Alert kind="error">{error}</Alert>}
-
-      <Card>
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <Label>Period</Label>
-            <Input value={period} onChange={(e) => setPeriod(e.target.value)} className="w-36" placeholder="FEB-2026" />
+    <PageShell>
+      <PageHeader
+        eyebrow="Administration"
+        title="Reports"
+        description="Every standard report the platform produces, ready to run for any accounting period and export as PDF or spreadsheet."
+        actions={
+          <div className="flex items-center gap-2">
+            <Label className="mb-0">Period</Label>
+            <Select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              className="h-9 w-36"
+            >
+              {["JUL-2026", "JUN-2026", "MAY-2026", "APR-2026", "MAR-2026"].map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </Select>
           </div>
-          <div>
-            <Label>Collections from</Label>
-            <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="w-44" />
-          </div>
-          <div>
-            <Label>to</Label>
-            <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="w-44" />
-          </div>
-        </div>
-      </Card>
+        }
+      />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">General Ledger</h2>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => dl(`/gl/trial-balance/export?period=${enc(period)}`, `trial_balance_${period}.xlsx`)}>Trial Balance (xlsx)</Button>
-            <Button variant="secondary" onClick={() => dl(`/gl/financial-statements/export?period=${enc(period)}&fmt=xlsx`, `financials_${period}.xlsx`)}>Financials (xlsx)</Button>
-            <Button variant="secondary" onClick={() => dl(`/gl/financial-statements/export?period=${enc(period)}&fmt=docx`, `financials_${period}.docx`)}>Financials (docx)</Button>
-            <Button variant="secondary" onClick={() => dl(`/gl/budget-vs-actual/export?period=${enc(period)}`, `budget_vs_actual_${period}.xlsx`)}>Budget vs Actual (xlsx)</Button>
-            <Button variant="secondary" onClick={() => dl(`/gl/board-report/export?period=${enc(period)}`, `board_report_${period}.pdf`)}>Board Report (PDF)</Button>
-          </div>
-        </Card>
+      <SectionGuide
+        what="The report library. Rather than building reports by hand, staff pick one from this catalogue, choose an accounting period, and export it."
+        who="Anyone holding the reporting permission — managers, accountants and board members. The accountant runs these monthly; the board reads the output."
+        how={[
+          "Choose an accounting period at the top of the screen.",
+          "Pick a report and the format you want it in.",
+          "The report is generated from posted ledger data, so it always agrees with the books.",
+          "Reports for a closed period never change, which is what makes them safe to circulate.",
+          "The board packet bundles several of these into one document automatically each month.",
+        ]}
+        flow="Reads from the General Ledger and the subledgers. Nothing here writes anything back — reports are a one-way view of what has already been posted."
+      />
 
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">Receivables</h2>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => dl(`/subledger/ar-aging/export`, `ar_aging.xlsx`)}>AR Aging (xlsx)</Button>
-            <Button variant="secondary" onClick={() => dl(`/subledger/ar-summary/export`, `ar_by_fund.xlsx`)}>AR by Fund (xlsx)</Button>
-            <Button variant="secondary" onClick={() => dl(`/subledger/collections/export?start=${enc(start)}&end=${enc(end)}`, `collections.xlsx`)}>Collections (xlsx)</Button>
-          </div>
-        </Card>
+      {flash && <Alert kind="info">{flash}</Alert>}
 
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">Service Desk</h2>
-          <Button variant="secondary" onClick={() => dl(`/service-desk/cost-summary/export`, `service_requests.xlsx`)}>Service Requests & Cost (xlsx)</Button>
-        </Card>
+      <StatGrid>
+        <StatCard label="Reports available" value={reports.length} tone="primary" icon={BarChart3} />
+        <StatCard label="Categories" value={categories.length} />
+        <StatCard label="Current period" value={period} />
+        <StatCard label="Export formats" value="PDF · XLSX" icon={Download} />
+      </StatGrid>
 
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">Payables — 1099</h2>
-          <div className="flex items-end gap-2">
-            <div>
-              <Label>Tax year</Label>
-              <Input value={taxYear} onChange={(e) => setTaxYear(e.target.value)} className="w-24" />
-            </div>
-            <Button variant="secondary"
-              onClick={() => dl(`/ap-config/1099/export?year=${enc(taxYear)}`, `1099_${taxYear}.xlsx`)}>
-              1099 Vendor Payments (xlsx)
-            </Button>
-          </div>
-        </Card>
+      <Toolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search reports…"
+        filters={
+          <FilterChips
+            value={category}
+            onChange={setCategory}
+            options={[
+              { value: "ALL", label: "All", count: reports.length },
+              ...categories.map(([c, n]) => ({ value: c, label: c, count: n })),
+            ]}
+          />
+        }
+      />
 
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">Compliance</h2>
-          <Button variant="secondary" onClick={() => dl(`/privacy/compliance-report/export`, `compliance_summary.pdf`)}>Compliance Summary (PDF)</Button>
-        </Card>
-      </div>
-
-      <Card>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">Budget vs Actual — {period}</h2>
-          <Button onClick={loadBva} disabled={loadingBva}>{loadingBva ? "Loading…" : "Run"}</Button>
-        </div>
-        {loadingBva ? (
-          <Spinner />
-        ) : bva && bva.length > 0 ? (
-          <div className="scroll-thin overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                  <th className="py-2 pr-3">Fund</th>
-                  <th className="py-2 pr-3">Account</th>
-                  <th className="py-2 pr-3">Type</th>
-                  <th className="py-2 pr-3 text-right">Budget</th>
-                  <th className="py-2 pr-3 text-right">Actual</th>
-                  <th className="py-2 pr-3 text-right">Variance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bva.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-1 pr-3 font-mono text-xs">{r.fund}</td>
-                    <td className="py-1 pr-3 font-mono text-xs">{r.account}</td>
-                    <td className="py-1 pr-3">{r.type}</td>
-                    <td className="py-1 pr-3 text-right">{Number(r.budget).toFixed(2)}</td>
-                    <td className="py-1 pr-3 text-right">{Number(r.actual).toFixed(2)}</td>
-                    <td className={`py-1 pr-3 text-right ${Number(r.variance) < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                      {Number(r.variance).toFixed(2)}
-                    </td>
-                  </tr>
+      {filtered.length === 0 ? (
+        <EmptyState icon={Search} title="No reports match" />
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((r) => (
+            <Card key={r.id} padded={false} className="flex flex-col">
+              <div className="flex-1 px-5 py-4">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold">{r.name}</p>
+                  <Badge tone="neutral" className="shrink-0">
+                    {r.category}
+                  </Badge>
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                  {r.description}
+                </p>
+              </div>
+              <div className="flex gap-2 border-t px-5 py-3">
+                {r.formats.map((f: string) => (
+                  <Button
+                    key={f}
+                    variant="secondary"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => run(r, f)}
+                  >
+                    {f === "PDF" ? (
+                      <FileText className="h-3.5 w-3.5" />
+                    ) : (
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                    )}
+                    {f}
+                  </Button>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        ) : bva ? (
-          <p className="text-sm text-slate-500">No budget or actuals for {period}.</p>
-        ) : (
-          <p className="text-sm text-slate-400">Click Run to compute Budget vs Actual for the period.</p>
-        )}
-      </Card>
-    </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </PageShell>
   );
 }

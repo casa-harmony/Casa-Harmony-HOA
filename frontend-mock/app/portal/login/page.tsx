@@ -1,212 +1,197 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { API_BASE } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Check, ChevronDown, Home, Mail, Smartphone } from "lucide-react";
+import { TENANTS } from "@/lib/mock-data/seed";
+import { tenantData } from "@/lib/mock-data/store";
+import { Badge, Button, Card } from "@/components/ui";
+import { ThemeToggle } from "@/components/theme";
+import { cn } from "@/lib/utils";
 
 export default function PortalLoginPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ hoa_slug: "casa-harmony", username: "", password: "" });
-  const [step, setStep] = useState<"creds" | "code" | "forgot" | "forgot_reset">("creds");
-  const [challenge, setChallenge] = useState<{ id: string; channel: string; dest: string; dev?: string } | null>(null);
-  const [code, setCode] = useState("");
-  const [newPw, setNewPw] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [tenantId, setTenantId] = useState(TENANTS[0].id);
+  const [open, setOpen] = useState(false);
 
-  async function sendForgot(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/portal/forgot-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hoa_slug: form.hoa_slug, username: form.username }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Request failed");
-      if (data.challenge_id) {
-        setChallenge({ id: data.challenge_id, channel: data.channel, dest: data.destination_masked, dev: data.dev_otp });
-        setStep("forgot_reset");
-      } else {
-        setNotice("If the account exists, a reset code was sent.");
-        setStep("creds");
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const residents = tenantData(tenantId).residents.filter((r: any) => r.is_active);
+  const [residentId, setResidentId] = useState<string>(residents[0]?.id ?? "");
+  const resident =
+    residents.find((r: any) => r.id === residentId) ?? residents[0];
 
-  async function submitReset(e: React.FormEvent) {
-    e.preventDefault();
-    if (!challenge) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/portal/reset-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ challenge_id: challenge.id, code, new_password: newPw }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Reset failed");
-      setNotice("Password reset. Please sign in with your new password.");
-      setStep("creds");
-      setCode(""); setNewPw("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Reset failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitCreds(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/portal/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Login failed");
-      if (!data.mfa_required) {
-        finish(data.access_token, data.resident);
-        return;
-      }
-      setChallenge({ id: data.challenge_id, channel: data.channel, dest: data.destination_masked, dev: data.dev_otp });
-      setStep("code");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Login failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!challenge) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/portal/login/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ challenge_id: challenge.id, code }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Verification failed");
-      finish(data.access_token, data.resident);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Verification failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function finish(token: string, resident: unknown) {
-    localStorage.setItem("casa_portal_token", token);
-    localStorage.setItem("casa_portal_resident", JSON.stringify(resident));
-    router.push("/portal");
+  function enter() {
+    localStorage.setItem(
+      "casa_portal_session",
+      JSON.stringify({ residentId: resident.id, tenantId })
+    );
+    router.replace("/portal");
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg">
-        <h1 className="text-center text-xl font-bold text-slate-800">Homeowner Portal</h1>
-        <p className="mb-6 text-center text-sm text-slate-500">Casa Harmony AI</p>
-        {notice && (
-          <div className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>
-        )}
-        {error && (
-          <div className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
-        )}
+    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="w-full max-w-md">
+        <div className="mb-7 flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">
+              CH
+            </div>
+            <div>
+              <p className="text-lg font-semibold tracking-tight">
+                Resident Portal
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {TENANTS.find((t) => t.id === tenantId)?.name}
+              </p>
+            </div>
+          </div>
+          <ThemeToggle />
+        </div>
 
-        {step === "creds" && (
-          <form onSubmit={submitCreds} className="space-y-3">
-            <Field label="HOA" value={form.hoa_slug} onChange={(v) => setForm({ ...form, hoa_slug: v })} />
-            <Field label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} autoFocus />
-            <Field label="Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
-            <Submit busy={busy} label="Continue" />
-            <button type="button" onClick={() => { setStep("forgot"); setError(null); setNotice(null); }}
-              className="w-full text-center text-xs text-brand-600 hover:underline">
-              Forgot password?
-            </button>
-          </form>
-        )}
+        <Card>
+          <h1 className="text-xl font-semibold tracking-tight">
+            Sign in to your account
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            This is what a homeowner sees &mdash; a completely separate
+            application from the staff one, showing only their own units.
+          </p>
 
-        {step === "code" && (
-          <form onSubmit={submitCode} className="space-y-3">
-            <p className="text-sm text-slate-600">
-              We sent a 6-digit code by {challenge?.channel === "SMS" ? "text" : "email"} to{" "}
-              <span className="font-medium">{challenge?.dest}</span>. Enter it below.
-            </p>
-            <Field label="Verification code" value={code} onChange={setCode} autoFocus />
-            {challenge?.dev && (
-              <p className="text-xs text-amber-600">Dev only — code: {challenge.dev}</p>
+          <div className="mt-5">
+            <label className="mb-1.5 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Community
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {TENANTS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setTenantId(t.id);
+                    const next = tenantData(t.id).residents.filter(
+                      (r: any) => r.is_active
+                    );
+                    setResidentId(next[0]?.id ?? "");
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    tenantId === t.id
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  <Home className="h-3.5 w-3.5" />
+                  {t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <label className="mb-1.5 block text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Sign in as
+            </label>
+            <div className="relative">
+              <button
+                onClick={() => setOpen((o) => !o)}
+                aria-expanded={open}
+                className="flex w-full items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-left shadow-sm transition-colors hover:bg-muted/50"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                  {resident?.full_name
+                    .split(" ")
+                    .map((w: string) => w[0])
+                    .join("")}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">
+                    {resident?.full_name}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {resident?.username} · {resident?.unit_count} unit
+                    {resident?.unit_count > 1 ? "s" : ""}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                    open && "rotate-180"
+                  )}
+                />
+              </button>
+
+              {open && (
+                <div className="absolute z-20 mt-1.5 max-h-72 w-full animate-fade-in overflow-y-auto rounded-lg border bg-popover shadow-xl scroll-thin">
+                  {residents.map((r: any) => (
+                    <button
+                      key={r.id}
+                      onClick={() => {
+                        setResidentId(r.id);
+                        setOpen(false);
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 border-b px-3 py-2.5 text-left last:border-0 transition-colors",
+                        r.id === residentId ? "bg-accent" : "hover:bg-muted/60"
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-sm font-semibold">
+                            {r.full_name}
+                          </span>
+                          <Badge
+                            tone={r.resident_type === "OWNER" ? "primary" : "info"}
+                            className="text-[10px]"
+                          >
+                            {r.resident_type}
+                          </Badge>
+                          {r.unit_count > 1 && (
+                            <Badge tone="brass" className="text-[10px]">
+                              {r.unit_count} units
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {r.username}
+                        </span>
+                      </span>
+                      {r.id === residentId && (
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-start gap-2 rounded-lg border bg-muted/40 px-3 py-2.5">
+            {resident?.mfa_channel === "SMS" ? (
+              <Smartphone className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            ) : (
+              <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
-            <Submit busy={busy} label="Verify & sign in" />
-            <button type="button" onClick={() => { setStep("creds"); setCode(""); }}
-              className="w-full text-center text-xs text-slate-400 hover:text-slate-600">← Back</button>
-          </form>
-        )}
-
-        {step === "forgot" && (
-          <form onSubmit={sendForgot} className="space-y-3">
-            <p className="text-sm text-slate-600">Enter your HOA and username — we'll send a reset code.</p>
-            <Field label="HOA" value={form.hoa_slug} onChange={(v) => setForm({ ...form, hoa_slug: v })} />
-            <Field label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} autoFocus />
-            <Submit busy={busy} label="Send reset code" />
-            <button type="button" onClick={() => { setStep("creds"); setError(null); }}
-              className="w-full text-center text-xs text-slate-400 hover:text-slate-600">← Back</button>
-          </form>
-        )}
-
-        {step === "forgot_reset" && (
-          <form onSubmit={submitReset} className="space-y-3">
-            <p className="text-sm text-slate-600">
-              Enter the code sent to <span className="font-medium">{challenge?.dest}</span> and a new password.
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              In the live product a one-time code is sent by{" "}
+              <span className="font-semibold text-foreground">
+                {resident?.mfa_channel === "SMS" ? "text message" : "email"}
+              </span>
+              . Residents get a code rather than an authenticator app, on purpose
+              &mdash; they are not technical users.
             </p>
-            <Field label="Verification code" value={code} onChange={setCode} autoFocus />
-            {challenge?.dev && <p className="text-xs text-amber-600">Dev only — code: {challenge.dev}</p>}
-            <Field label="New password" type="password" value={newPw} onChange={setNewPw} />
-            <Submit busy={busy} label="Reset password" />
-            <button type="button" onClick={() => { setStep("creds"); setCode(""); setNewPw(""); }}
-              className="w-full text-center text-xs text-slate-400 hover:text-slate-600">← Back</button>
-          </form>
-        )}
+          </div>
 
-        <p className="mt-4 text-center text-xs text-slate-400">
-          Owners &amp; renters. Staff sign in <a href="/login" className="text-brand-600">here</a>.
-        </p>
+          <Button size="lg" className="mt-5 w-full" onClick={enter}>
+            Sign in
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+
+          <a
+            href="/login"
+            className="mt-3 block text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Staff sign-in is a different door &rarr;
+          </a>
+        </Card>
       </div>
     </div>
-  );
-}
-
-function Field({ label, value, onChange, type = "text", autoFocus = false }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; autoFocus?: boolean;
-}) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-slate-500">{label}</label>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} autoFocus={autoFocus}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" required />
-    </div>
-  );
-}
-
-function Submit({ busy, label }: { busy: boolean; label: string }) {
-  return (
-    <button type="submit" disabled={busy}
-      className="w-full rounded-lg bg-brand-600 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">
-      {busy ? "Please wait…" : label}
-    </button>
   );
 }

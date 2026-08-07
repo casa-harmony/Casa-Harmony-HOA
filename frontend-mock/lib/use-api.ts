@@ -1,0 +1,63 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch } from "./api";
+import { useAuth } from "@/app/providers";
+
+/**
+ * Read an endpoint, re-reading whenever the active community changes or the
+ * demo store is written to. Every list page in the app uses this.
+ */
+export function useApi<T>(path: string | null, initial: T) {
+  const { activeTenantId, revision } = useAuth();
+  const [data, setData] = useState<T>(initial);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!path) {
+      setLoading(false);
+      return;
+    }
+    let alive = true;
+    setLoading(true);
+    apiFetch<T>(path, { tenantId: activeTenantId })
+      .then((d) => {
+        if (alive) {
+          setData(d);
+          setError(null);
+        }
+      })
+      .catch((e) => alive && setError(e?.message ?? "Failed to load"))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [path, activeTenantId, revision]);
+
+  return { data, loading, error };
+}
+
+/** Write helper — POST/PATCH/DELETE with the active community attached. */
+export function useMutate() {
+  const { activeTenantId } = useAuth();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const mutate = useCallback(
+    async <T,>(path: string, method: string, body?: unknown): Promise<T> => {
+      setBusy(path);
+      try {
+        return await apiFetch<T>(path, {
+          method,
+          body,
+          tenantId: activeTenantId,
+        });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [activeTenantId]
+  );
+
+  return { mutate, busy };
+}

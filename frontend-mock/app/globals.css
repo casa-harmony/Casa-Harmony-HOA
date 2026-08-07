@@ -2,20 +2,209 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+/* ============================================================
+   Casa Harmony design tokens
+   Teal primary / brass money accent / cool blue-green neutrals.
+   Every value is an HSL triplet so Tailwind can compose opacity.
+   ============================================================ */
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --background: 200 20% 98%;
+    --foreground: 200 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 200 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 25% 12%;
+
+    /* Deep teal — the structural accent */
+    --primary: 178 62% 24%;
+    --primary-foreground: 180 40% 97%;
+
+    --secondary: 200 16% 94%;
+    --secondary-foreground: 200 25% 18%;
+
+    --muted: 200 16% 95%;
+    --muted-foreground: 200 10% 42%;
+
+    --accent: 178 38% 93%;
+    --accent-foreground: 178 62% 20%;
+
+    --destructive: 4 62% 44%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 158 52% 30%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 72% 36%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 205 62% 38%;
+    --info-foreground: 0 0% 100%;
+
+    /* Brass — reserved for money, approvals, financial emphasis */
+    --brass: 40 68% 32%;
+    --brass-foreground: 0 0% 100%;
+
+    --border: 200 15% 88%;
+    --input: 200 15% 88%;
+    --ring: 178 55% 30%;
+
+    --radius: 0.625rem;
+
+    /* Categorical chart hues — fixed order, never cycled.
+       Validated: lightness band, chroma floor, CVD separation (worst adjacent
+       ΔE 12.6 protan), normal-vision floor, contrast ≥ 3:1 vs surface. */
+    --chart-1: 175 81% 31%; /* #0F8F85 teal   */
+    --chart-2: 41 83% 36%;  /* #A87710 brass  */
+    --chart-3: 221 73% 55%; /* #3A6FE0 blue   */
+    --chart-4: 5 68% 54%;   /* #D9483A red    */
+    --chart-5: 271 50% 54%; /* #8B4FC4 purple */
+
+    /* Sequential ramp — one hue, light → dark. For ordered buckets only
+       (ageing bands), never for nominal categories. */
+    --seq-1: 41 70% 80%;
+    --seq-2: 41 72% 66%;
+    --seq-3: 41 76% 53%;
+    --seq-4: 41 82% 41%;
+    --seq-5: 41 88% 29%;
+
+    --sidebar: 200 22% 96%;
+    --sidebar-foreground: 200 25% 16%;
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    --background: 196 30% 7%;
+    --foreground: 190 16% 91%;
+
+    --card: 196 26% 11%;
+    --card-foreground: 190 16% 91%;
+
+    --popover: 196 28% 10%;
+    --popover-foreground: 190 16% 91%;
+
+    --primary: 175 52% 48%;
+    --primary-foreground: 196 40% 8%;
+
+    --secondary: 196 22% 17%;
+    --secondary-foreground: 190 16% 91%;
+
+    --muted: 196 22% 15%;
+    --muted-foreground: 195 13% 62%;
+
+    --accent: 178 34% 18%;
+    --accent-foreground: 175 55% 72%;
+
+    --destructive: 6 60% 60%;
+    --destructive-foreground: 196 40% 8%;
+
+    --success: 155 45% 52%;
+    --success-foreground: 196 40% 8%;
+
+    --warning: 40 62% 58%;
+    --warning-foreground: 196 40% 8%;
+
+    --info: 205 60% 62%;
+    --info-foreground: 196 40% 8%;
+
+    --brass: 42 58% 58%;
+    --brass-foreground: 196 40% 8%;
+
+    --border: 196 20% 21%;
+    --input: 196 20% 23%;
+    --ring: 175 50% 44%;
+
+    /* Dark-mode categorical steps — selected and validated against the dark
+       card surface, not an inversion of the light set. */
+    --chart-1: 175 56% 42%; /* #2FA79C */
+    --chart-2: 41 61% 43%;  /* #B0862B */
+    --chart-3: 225 62% 64%; /* #6B87DC */
+    --chart-4: 6 62% 61%;   /* #D9685C */
+    --chart-5: 272 42% 62%; /* #A277C7 */
+
+    --seq-1: 41 40% 30%;
+    --seq-2: 41 46% 40%;
+    --seq-3: 41 53% 50%;
+    --seq-4: 41 60% 60%;
+    --seq-5: 41 68% 70%;
+
+    --sidebar: 196 28% 9%;
+    --sidebar-foreground: 190 16% 88%;
+  }
 }
 
-html,
-body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Numbers in tables and stats should always line up */
+  .tabular,
+  td.tabular,
+  .stat-value {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    @apply bg-primary/20;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
 }
 
-/* Thin scrollbars for tables */
-.scroll-thin::-webkit-scrollbar {
-  height: 8px;
-  width: 8px;
+@layer components {
+  /* Thin scrollbars — used on the sidebar and any overflow region */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+
+  /* Subtle grid texture for empty/hero surfaces */
+  .surface-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
 }
-.scroll-thin::-webkit-scrollbar-thumb {
-  @apply rounded-full bg-slate-300;
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

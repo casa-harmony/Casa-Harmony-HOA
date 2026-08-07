@@ -1,125 +1,222 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import {
+  CreditCard, Landmark, Percent, RotateCcw, ShieldCheck, TrendingUp, XCircle,
+} from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch, downloadFile } from "@/lib/api";
-import type { GatewayConfig, GatewayTxn } from "@/lib/types";
-import { Alert, Badge, Button, Card, Input, Label, Select, Spinner } from "@/components/ui";
-
-const TONE: Record<string, string> = { SUCCEEDED: "A", PENDING: "O", REFUNDED: "L", FAILED: "R", CHARGEBACK: "R" };
+import { useApi, useMutate } from "@/lib/use-api";
+import { Alert, Badge, Button, Card, Switch } from "@/components/ui";
+import {
+  Column, DataTable, EmptyState, FilterChips, PageHeader, PageShell,
+  SectionGuide, StatCard, StatGrid, StatusBadge, Toolbar, money, relTime,
+} from "@/components/app/kit";
 
 export default function GatewayPage() {
-  const { token, activeTenantId } = useAuth();
-  const [cfg, setCfg] = useState<GatewayConfig | null>(null);
-  const [txns, setTxns] = useState<GatewayTxn[]>([]);
-  const [secret, setSecret] = useState({ secret_key: "", webhook_secret: "" });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const { can } = useAuth();
+  const { data: txns } = useApi<any[]>("/gateway/transactions", []);
+  const { data: config } = useApi<any>("/gateway/config", null);
+  const { mutate } = useMutate();
 
-  async function load() {
-    if (!token || !activeTenantId) return;
-    setLoading(true);
-    try {
-      const [c, t] = await Promise.all([
-        apiFetch<GatewayConfig>("/gateway/config", { token, tenantId: activeTenantId }),
-        apiFetch<GatewayTxn[]>("/gateway/transactions", { token, tenantId: activeTenantId }),
-      ]);
-      setCfg(c); setTxns(t); setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("ALL");
+  const [flash, setFlash] = useState<string | null>(null);
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault(); if (!cfg) return;
-    setBusy("save"); setError(null); setMsg(null);
-    try {
-      const c = await apiFetch<GatewayConfig>("/gateway/config", {
-        method: "PUT", token, tenantId: activeTenantId, body: {
-          provider: cfg.provider, publishable_key: cfg.publishable_key || null,
-          secret_key: secret.secret_key || undefined, webhook_secret: secret.webhook_secret || undefined,
-          active: cfg.active } });
-      setCfg(c); setSecret({ secret_key: "", webhook_secret: "" }); setMsg("Gateway saved.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Save failed"); }
-    finally { setBusy(null); }
-  }
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return txns.filter((t) => {
+      if (status !== "ALL" && t.status !== status) return false;
+      return (
+        !q ||
+        t.payer.toLowerCase().includes(q) ||
+        t.reference.toLowerCase().includes(q) ||
+        String(t.unit).includes(q)
+      );
+    });
+  }, [txns, status, search]);
 
-  async function refund(id: string) {
-    if (!window.confirm("Refund this payment? A reversing GL batch will be created.")) return;
-    setBusy(id); setError(null);
-    try {
-      await apiFetch(`/gateway/transactions/${id}/refund`, { method: "POST", token, tenantId: activeTenantId });
-      setMsg("Refunded."); await load();
-    } catch (e) { setError(e instanceof Error ? e.message : "Refund failed"); }
-    finally { setBusy(null); }
-  }
+  const settled = txns.filter((t) => t.status === "SUCCESS");
+  const collected = settled.reduce((s, t) => s + t.amount, 0);
+  const fees = settled.reduce((s, t) => s + t.fee, 0);
+  const failed = txns.filter((t) => t.status === "FAILED").length;
+
+  const columns: Column<any>[] = [
+    {
+      key: "payer",
+      header: "Paid by",
+      render: (t) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{t.payer}</p>
+          <p className="truncate text-2xs text-muted-foreground">Unit {t.unit}</p>
+        </div>
+      ),
+    },
+    {
+      key: "method",
+      header: "Method",
+      render: (t) => (
+        <span className="inline-flex items-center gap-1.5 text-xs">
+          {t.method === "CARD" ? (
+            <>
+              <CreditCard className="h-3 w-3 text-muted-foreground" />
+              Card ••{t.card_last4}
+            </>
+          ) : (
+            <>
+              <Landmark className="h-3 w-3 text-muted-foreground" />
+              Bank transfer
+            </>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "ref",
+      header: "Reference",
+      render: (t) => (
+        <span className="font-mono text-2xs text-muted-foreground">
+          {t.reference}
+        </span>
+      ),
+    },
+    { key: "amount", header: "Amount", numeric: true, render: (t) => <span className="text-sm font-semibold">{money(t.amount)}</span> },
+    { key: "fee", header: "Fee", numeric: true, render: (t) => <span className="text-xs text-muted-foreground">{money(t.fee)}</span> },
+    { key: "status", header: "Status", render: (t) => <StatusBadge status={t.status} /> },
+    { key: "when", header: "When", render: (t) => <span className="text-xs text-muted-foreground">{relTime(t.created_at)}</span> },
+    {
+      key: "act",
+      header: "",
+      render: (t) =>
+        t.status === "SUCCESS" && can("payment.manage") ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async (e) => {
+              e.stopPropagation();
+              await mutate(`/gateway/transactions/${t.id}/refund`, "POST");
+              setFlash(`${money(t.amount)} refunded to ${t.payer}.`);
+              setTimeout(() => setFlash(null), 4000);
+            }}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Refund
+          </Button>
+        ) : null,
+    },
+  ];
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800">Payment Gateway</h1>
-          <p className="text-sm text-slate-500">Online collections via a hosted gateway (PCI handled by provider).</p>
-        </div>
-        <Button variant="secondary" onClick={() => downloadFile("/gateway/reconciliation/export", token!, activeTenantId!, "gateway_reconciliation.xlsx")}>Reconciliation xlsx</Button>
-      </div>
-      {error && <Alert kind="error">{error}</Alert>}
-      {msg && <Alert kind="success">{msg}</Alert>}
+    <PageShell>
+      <PageHeader
+        eyebrow="Administration"
+        title="Payment Gateway"
+        description="How homeowners pay online, what it costs the community in processing fees, and the record of every attempt."
+      />
 
-      {loading ? <Spinner /> : cfg && (
-        <>
-          <Card>
-            <h2 className="mb-2 text-sm font-semibold text-slate-700">Configuration</h2>
-            <form onSubmit={save} className="grid items-end gap-3 md:grid-cols-2">
-              <div>
-                <Label>Provider</Label>
-                <Select value={cfg.provider} onChange={(e) => setCfg({ ...cfg, provider: e.target.value })}>
-                  <option value="MOCK">MOCK (testing)</option>
-                  <option value="STRIPE">STRIPE</option>
-                </Select>
-              </div>
-              <label className="flex items-center gap-2 pb-2 text-sm">
-                <input type="checkbox" checked={cfg.active} onChange={(e) => setCfg({ ...cfg, active: e.target.checked })} /> Active
-              </label>
-              <div><Label>Publishable key</Label><Input value={cfg.publishable_key || ""} onChange={(e) => setCfg({ ...cfg, publishable_key: e.target.value })} /></div>
-              <div><Label>Secret key {cfg.secret_key_set && <span className="text-xs text-emerald-600">(set)</span>}</Label>
-                <Input type="password" value={secret.secret_key} onChange={(e) => setSecret({ ...secret, secret_key: e.target.value })} placeholder="leave blank to keep" /></div>
-              <div><Label>Webhook secret {cfg.webhook_secret_set && <span className="text-xs text-emerald-600">(set)</span>}</Label>
-                <Input type="password" value={secret.webhook_secret} onChange={(e) => setSecret({ ...secret, webhook_secret: e.target.value })} placeholder="leave blank to keep" /></div>
-              <div><Button type="submit" disabled={busy === "save"}>{busy === "save" ? "Saving…" : "Save"}</Button></div>
-            </form>
-            <p className="mt-2 text-xs text-slate-400">Webhook URL: <code>/api/v1/gateway/webhook/&lt;tenant_id&gt;</code> — signature-verified against the webhook secret.</p>
-          </Card>
+      <SectionGuide
+        what="The connection to the card and bank-transfer processor that lets residents pay their dues online from the portal, instead of posting a cheque."
+        who="Configured by administrators. Accountants watch the transaction feed because it feeds the receivables ledger. Residents use it without ever seeing this screen."
+        how={[
+          "A resident pays from their portal by card or bank transfer.",
+          "The card number is never stored here — it is exchanged for a token held by the processor, so the community holds nothing sensitive.",
+          "The processor charges a fee, which can either be absorbed by the community or passed to the resident.",
+          "Successful payments post automatically against that unit's balance.",
+          "A failed payment leaves the balance outstanding, which will eventually trigger the collections ladder.",
+          "Refunds are issued from here and reverse the original posting.",
+        ]}
+        flow="Feeds Receivables directly — a successful payment reduces a homeowner's balance without anybody keying anything in."
+      />
 
-          <Card>
-            <h2 className="mb-2 text-sm font-semibold text-slate-700">Transactions</h2>
-            <table className="w-full text-left text-sm">
-              <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                <th className="py-1 pr-3">Reference</th><th className="py-1 pr-3 text-right">Amount</th>
-                <th className="py-1 pr-3">Status</th><th className="py-1 pr-3">When</th><th className="py-1 pr-3 text-right">Action</th></tr></thead>
-              <tbody>
-                {txns.map((t) => (
-                  <tr key={t.id} className="border-b border-slate-100">
-                    <td className="py-1 pr-3 font-mono text-xs">{t.txn_ref}</td>
-                    <td className="py-1 pr-3 text-right">${Number(t.amount).toFixed(2)}</td>
-                    <td className="py-1 pr-3"><Badge tone={TONE[t.status]}>{t.status}</Badge></td>
-                    <td className="py-1 pr-3 text-xs">{new Date(t.created_at).toLocaleDateString()}</td>
-                    <td className="py-1 pr-3 text-right">
-                      {t.status === "SUCCEEDED" && !t.refund_of_id && (
-                        <Button variant="secondary" onClick={() => refund(t.id)} disabled={busy === t.id}>Refund</Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {txns.length === 0 && <tr><td colSpan={5} className="py-2 text-slate-400">No transactions yet.</td></tr>}
-              </tbody>
-            </table>
-          </Card>
-        </>
+      {flash && <Alert kind="success">{flash}</Alert>}
+
+      <StatGrid>
+        <StatCard label="Collected online" value={money(collected, 0)} tone="success" icon={TrendingUp} />
+        <StatCard label="Processing fees" value={money(fees)} hint={config?.pass_fees_to_resident ? "Passed to residents" : "Absorbed by the community"} tone="brass" icon={Percent} />
+        <StatCard label="Successful" value={settled.length} tone="success" />
+        <StatCard label="Failed" value={failed} tone={failed ? "danger" : "success"} icon={XCircle} />
+      </StatGrid>
+
+      {config && (
+        <Card padded={false}>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3.5">
+            <div>
+              <h3 className="text-sm font-semibold">Gateway configuration</h3>
+              <p className="text-xs text-muted-foreground">
+                Connected to {config.provider}
+              </p>
+            </div>
+            <Badge tone={config.mode === "TEST" ? "warning" : "success"}>
+              {config.mode === "TEST" ? "Test mode" : "Live mode"}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-1 divide-y sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+            <ConfigCell label="Card payments" value={config.card_enabled ? "Enabled" : "Disabled"} sub={`${config.card_fee_pct}% + ${money(config.card_fee_flat)}`} on={config.card_enabled} />
+            <ConfigCell label="Bank transfer" value={config.ach_enabled ? "Enabled" : "Disabled"} sub={`${money(config.ach_fee_flat)} flat`} on={config.ach_enabled} />
+            <ConfigCell label="Who pays the fee" value={config.pass_fees_to_resident ? "The resident" : "The community"} sub="Configurable per community" on />
+            <ConfigCell label="Card details stored" value="Never" sub="Tokenised at the processor" on />
+          </div>
+        </Card>
       )}
+
+      {config?.mode === "TEST" && (
+        <Alert kind="warning" title="Still in test mode">
+          No real money moves while the gateway is in test mode. Switching to
+          live is one of the items on the go-live checklist.
+        </Alert>
+      )}
+
+      <Toolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search by payer, unit or reference…"
+        filters={
+          <FilterChips
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "ALL", label: "All", count: txns.length },
+              { value: "SUCCESS", label: "Successful", count: settled.length },
+              { value: "FAILED", label: "Failed", count: failed },
+              { value: "REFUNDED", label: "Refunded", count: txns.filter((t) => t.status === "REFUNDED").length },
+            ]}
+          />
+        }
+      />
+
+      <DataTable
+        rows={filtered}
+        columns={columns}
+        empty={<EmptyState icon={CreditCard} title="No transactions match" />}
+      />
+
+      <Card className="border-primary/25 bg-accent/40">
+        <p className="flex items-center gap-1.5 text-sm font-semibold">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          Card security
+        </p>
+        <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
+          Card numbers never touch this system. When a resident pays, the card
+          is sent straight to the processor, which returns a token — a
+          meaningless reference that can only be used to charge that same card
+          again through the same account. That token is what gets stored. It
+          means a breach of this database exposes no card data at all, and it is
+          what keeps the platform within the card industry's security rules.
+        </p>
+      </Card>
+    </PageShell>
+  );
+}
+
+function ConfigCell({ label, value, sub, on }: { label: string; value: string; sub: string; on: boolean }) {
+  return (
+    <div className="px-5 py-4">
+      <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <p className={"mt-1 text-sm font-semibold " + (on ? "" : "text-muted-foreground")}>
+        {value}
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>
     </div>
   );
 }

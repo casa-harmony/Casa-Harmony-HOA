@@ -1,227 +1,281 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { Ban, Banknote, CheckCircle2, CreditCard, Landmark, Wallet } from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch, downloadFile } from "@/lib/api";
-import type { ApPayment, Payable, PaymentMethod, Vendor } from "@/lib/types";
-import { Alert, Badge, Button, Card, Input, Label, Modal, Select, Spinner } from "@/components/ui";
-
-const STATUS_TONE: Record<string, string> = { CREATED: "A", VOID: "L", STOPPED: "R" };
+import { useApi, useMutate } from "@/lib/use-api";
+import { Alert, Badge, Button, Card } from "@/components/ui";
+import {
+  Column, DataTable, DetailSheet, EmptyState, Facts, FilterChips, PageHeader,
+  PageShell, SectionGuide, StatCard, StatGrid, StatusBadge, Toolbar, money,
+  shortDate,
+} from "@/components/app/kit";
 
 export default function PaymentsPage() {
-  const { token, activeTenantId } = useAuth();
-  const [payable, setPayable] = useState<Payable[]>([]);
-  const [payments, setPayments] = useState<ApPayment[]>([]);
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [payModal, setPayModal] = useState(false);
-  const [batchModal, setBatchModal] = useState(false);
-  const [pay, setPay] = useState({ payment_method_id: "", payment_date: "2026-05-25", reference: "" });
-  const [batch, setBatch] = useState({ payment_method_id: "", payment_date: "2026-05-25", due_before: "2026-12-31" });
-  const [reg, setReg] = useState({ start: "2026-01-01", end: "2026-12-31" });
+  const { can } = useAuth();
+  const { data: payments } = useApi<any[]>("/ap-payments", []);
+  const { data: banks } = useApi<any[]>("/cash/bank-accounts", []);
+  const { mutate } = useMutate();
 
-  async function load() {
-    if (!token || !activeTenantId) return;
-    setLoading(true);
-    try {
-      const [pa, pm, me, ve] = await Promise.all([
-        apiFetch<Payable[]>("/ap-payments/payable", { token, tenantId: activeTenantId }),
-        apiFetch<ApPayment[]>("/ap-payments", { token, tenantId: activeTenantId }),
-        apiFetch<PaymentMethod[]>("/ap-config/payment-methods", { token, tenantId: activeTenantId }).catch(() => []),
-        apiFetch<Vendor[]>("/vendors", { token, tenantId: activeTenantId }),
-      ]);
-      setPayable(pa); setPayments(pm); setMethods(me); setVendors(ve);
-      setSelected({});
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
+  const [search, setSearch] = useState("");
+  const [method, setMethod] = useState("ALL");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
 
-  const vName = (id: string) => vendors.find((v) => v.id === id)?.name || id?.slice(0, 8) || "Unknown";
-  const chosen = payable.filter((p) => selected[p.invoice_id]);
-  const chosenVendors = new Set(chosen.map((p) => p.vendor_id));
-  const chosenTotal = chosen.reduce((s, p) => s + Number(p.amount_remaining), 0);
+  const pay = payments.find((p) => p.id === selected) ?? null;
 
-  async function createPayment(e: React.FormEvent) {
-    e.preventDefault();
-    if (chosenVendors.size !== 1) { setError("Select invoices for a single vendor per payment."); return; }
-    setBusy("pay"); setError(null);
-    try {
-      await apiFetch("/ap-payments", {
-        method: "POST", token, tenantId: activeTenantId,
-        body: {
-          vendor_id: chosen[0].vendor_id,
-          payment_method_id: pay.payment_method_id || undefined,
-          payment_date: pay.payment_date, reference: pay.reference || undefined,
-          applications: chosen.map((p) => ({ invoice_id: p.invoice_id, amount: p.amount_remaining })),
-        },
-      });
-      setPayModal(false); setMsg(`Payment created for ${vName(chosen[0].vendor_id)}.`);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Payment failed");
-    } finally { setBusy(null); }
-  }
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return payments.filter((p) => {
+      if (method !== "ALL" && p.method !== method) return false;
+      return (
+        !q ||
+        p.payment_number.toLowerCase().includes(q) ||
+        p.vendor_name.toLowerCase().includes(q) ||
+        p.reference.toLowerCase().includes(q)
+      );
+    });
+  }, [payments, method, search]);
 
-  async function runBatch(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy("batch"); setError(null);
-    try {
-      const r = await apiFetch<{ payments_created: number; total_paid: string }>("/ap-payments/batch", {
-        method: "POST", token, tenantId: activeTenantId,
-        body: { payment_method_id: batch.payment_method_id || undefined, payment_date: batch.payment_date, due_before: batch.due_before },
-      });
-      setBatchModal(false); setMsg(`Batch run: ${r.payments_created} payments, $${Number(r.total_paid).toFixed(2)}.`);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Batch failed");
-    } finally { setBusy(null); }
-  }
+  const total = payments
+    .filter((p) => p.status !== "CANCELLED")
+    .reduce((s, p) => s + p.amount, 0);
+  const uncleared = payments.filter((p) => !p.cleared && p.status !== "CANCELLED");
+  const ach = payments.filter((p) => p.method === "ACH").length;
+  const check = payments.filter((p) => p.method === "CHECK").length;
 
-  async function action(id: string, verb: "void" | "stop") {
-    setBusy(id); setError(null);
-    try {
-      await apiFetch(`/ap-payments/${id}/${verb}`, { method: "POST", token, tenantId: activeTenantId });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : `${verb} failed`);
-    } finally { setBusy(null); }
-  }
+  const columns: Column<any>[] = [
+    {
+      key: "ref",
+      header: "Payment",
+      render: (p) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{p.payment_number}</p>
+          <p className="truncate font-mono text-2xs text-muted-foreground">
+            {p.reference}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: "vendor",
+      header: "Paid to",
+      render: (p) => (
+        <div className="min-w-0">
+          <p className="truncate text-sm">{p.vendor_name}</p>
+          <p className="truncate text-2xs text-muted-foreground">
+            for {p.invoice_number}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: "method",
+      header: "Method",
+      render: (p) => (
+        <span className="inline-flex items-center gap-1.5 text-xs">
+          {p.method === "ACH" ? (
+            <Landmark className="h-3 w-3 text-muted-foreground" />
+          ) : (
+            <Banknote className="h-3 w-3 text-muted-foreground" />
+          )}
+          {p.method}
+        </span>
+      ),
+    },
+    {
+      key: "date",
+      header: "Date",
+      render: (p) => (
+        <span className="text-xs text-muted-foreground">
+          {shortDate(p.payment_date)}
+        </span>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      numeric: true,
+      render: (p) => (
+        <span className="text-sm font-semibold">{money(p.amount)}</span>
+      ),
+    },
+    {
+      key: "cleared",
+      header: "Bank",
+      render: (p) =>
+        p.status === "CANCELLED" ? (
+          <Badge tone="neutral">Voided</Badge>
+        ) : p.cleared ? (
+          <Badge tone="success">Cleared</Badge>
+        ) : (
+          <Badge tone="warning">In transit</Badge>
+        ),
+    },
+    { key: "status", header: "Status", render: (p) => <StatusBadge status={p.status} /> },
+  ];
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800">Payments (AP)</h1>
-          <p className="text-sm text-slate-500">Select payable invoices, pay vendors, void/stop, batch runs.</p>
-        </div>
-        <Button variant="secondary" onClick={() => setBatchModal(true)}>▶ Batch Pay</Button>
+    <PageShell>
+      <PageHeader
+        eyebrow="Accounts Payable"
+        title="Payments"
+        description="Money actually leaving the community's bank accounts, and whether each payment has cleared."
+      />
+
+      <SectionGuide
+        what="The record of every payment issued to a vendor — by bank transfer or by cheque — drawn from a named bank account and traceable back to the invoice it settles."
+        who="Accountants issue payments. Only someone holding the payment permission can void or stop one. Every action is written to the audit trail with the person's name against it."
+        how={[
+          "A payment can only be raised against an invoice that has been approved.",
+          "It is drawn from a specific bank account, which decides which fund the money leaves.",
+          "The payment is issued by bank transfer or cheque and gets a reference number.",
+          "It stays 'in transit' until it appears on the bank statement and is reconciled.",
+          "A payment can be voided before it clears; afterwards a correcting entry is required instead.",
+        ]}
+        flow="Receives approved invoices from Payables. Feeds the General Ledger and Bank Reconciliation. Reconciliation writes back — matching a payment on the statement marks it cleared here."
+      />
+
+      {flash && <Alert kind="success">{flash}</Alert>}
+
+      <StatGrid>
+        <StatCard label="Paid this period" value={money(total, 0)} tone="brass" icon={Wallet} />
+        <StatCard
+          label="Not yet cleared"
+          value={uncleared.length}
+          hint={uncleared.length ? money(uncleared.reduce((s, p) => s + p.amount, 0), 0) : "All cleared"}
+          tone={uncleared.length ? "warning" : "success"}
+        />
+        <StatCard label="By bank transfer" value={ach} icon={Landmark} />
+        <StatCard label="By cheque" value={check} icon={Banknote} />
+      </StatGrid>
+
+      {/* bank position */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {banks.map((b) => (
+          <Card key={b.id} className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{b.name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {b.bank} {b.masked} · {b.fund} fund
+              </p>
+              {b.unreconciled_items > 0 && (
+                <Badge tone="warning" className="mt-1.5">
+                  {b.unreconciled_items} unreconciled
+                </Badge>
+              )}
+            </div>
+            <p className="stat-value shrink-0 text-xl font-semibold">
+              {money(b.balance, 0)}
+            </p>
+          </Card>
+        ))}
       </div>
-      {error && <Alert kind="error">{error}</Alert>}
-      {msg && <Alert kind="success">{msg}</Alert>}
 
-      <Card>
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">Reports</span>
-          <Input value={reg.start} onChange={(e) => setReg({ ...reg, start: e.target.value })} className="w-32" />
-          <Input value={reg.end} onChange={(e) => setReg({ ...reg, end: e.target.value })} className="w-32" />
-          <Button variant="secondary" onClick={() => downloadFile(`/ap-payments/register/export?start=${reg.start}&end=${reg.end}`, token!, activeTenantId!, "payment_register.xlsx")}>Register</Button>
-          <Button variant="secondary" onClick={() => downloadFile(`/ap-payments/aged-payables/export`, token!, activeTenantId!, "aged_payables.xlsx")}>Aged Payables</Button>
-          <Button variant="secondary" onClick={() => downloadFile(`/ap-payments/cash-requirements/export`, token!, activeTenantId!, "cash_requirements.xlsx")}>Cash Requirements</Button>
-        </div>
-      </Card>
+      <Toolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search by payment number, vendor or reference…"
+        filters={
+          <FilterChips
+            value={method}
+            onChange={setMethod}
+            options={[
+              { value: "ALL", label: "All", count: payments.length },
+              { value: "ACH", label: "Bank transfer", count: ach },
+              { value: "CHECK", label: "Cheque", count: check },
+            ]}
+          />
+        }
+      />
 
-      <Card>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">Payable invoices ({payable.length})</h2>
-          <Button disabled={chosen.length === 0} onClick={() => { setError(null); setPayModal(true); }}>
-            Pay selected ({chosen.length}) · ${chosenTotal.toFixed(2)}
-          </Button>
-        </div>
-        {loading ? <Spinner /> : payable.length === 0 ? (
-          <p className="text-sm text-slate-500">Nothing payable. Approve AP invoices to make them payable.</p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                <th className="py-2 pr-3"></th><th className="py-2 pr-3">Invoice</th><th className="py-2 pr-3">Vendor</th>
-                <th className="py-2 pr-3">Due</th><th className="py-2 pr-3 text-right">Remaining</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payable.map((p) => (
-                <tr key={p.invoice_id} className="border-b border-slate-100">
-                  <td className="py-2 pr-3"><input type="checkbox" checked={!!selected[p.invoice_id]}
-                    onChange={(e) => setSelected({ ...selected, [p.invoice_id]: e.target.checked })} /></td>
-                  <td className="py-2 pr-3 font-mono">{p.invoice_number}</td>
-                  <td className="py-2 pr-3">{p.vendor_name}</td>
-                  <td className="py-2 pr-3">{p.due_date || "—"}</td>
-                  <td className="py-2 pr-3 text-right">${Number(p.amount_remaining).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
+      <DataTable
+        rows={filtered}
+        columns={columns}
+        onRowClick={(p) => setSelected(p.id)}
+        empty={
+          <EmptyState
+            icon={CreditCard}
+            title="No payments yet"
+            description="Approve an invoice on the Payables screen and pay it to see a payment appear here."
+          />
+        }
+      />
 
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">Payments ({payments.length})</h2>
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-              <th className="py-2 pr-3">Payment #</th><th className="py-2 pr-3">Vendor</th><th className="py-2 pr-3">Date</th>
-              <th className="py-2 pr-3 text-right">Amount</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr key={p.id} className="border-b border-slate-100">
-                <td className="py-2 pr-3 font-mono">{p.payment_number}</td>
-                <td className="py-2 pr-3">{vName(p.vendor_id)}</td>
-                <td className="py-2 pr-3">{p.payment_date}</td>
-                <td className="py-2 pr-3 text-right">${Number(p.amount).toFixed(2)}</td>
-                <td className="py-2 pr-3"><Badge tone={STATUS_TONE[p.status]}>{p.status}</Badge></td>
-                <td className="py-2 pr-3">
-                  {p.status === "CREATED" && (
-                    <div className="flex justify-end gap-2">
-                      <Button variant="secondary" onClick={() => action(p.id, "stop")} disabled={busy === p.id}>Stop</Button>
-                      <Button variant="secondary" onClick={() => action(p.id, "void")} disabled={busy === p.id}>Void</Button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
+      {pay && (
+        <DetailSheet
+          open
+          onClose={() => setSelected(null)}
+          title={pay.payment_number}
+          subtitle={`${pay.vendor_name} · ${shortDate(pay.payment_date)}`}
+          badge={<StatusBadge status={pay.status} />}
+          footer={
+            can("ap.pay") &&
+            pay.status !== "CANCELLED" && (
+              <>
+                {!pay.cleared && (
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      await mutate(`/ap-payments/${pay.id}/clear`, "POST");
+                      setFlash("Marked as cleared on the bank statement.");
+                      setTimeout(() => setFlash(null), 4000);
+                    }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    Mark cleared
+                  </Button>
+                )}
+                <Button
+                  variant="danger"
+                  onClick={async () => {
+                    await mutate(`/ap-payments/${pay.id}/void`, "POST");
+                    setFlash(`${pay.payment_number} voided. A reversing entry has been queued for the ledger.`);
+                    setTimeout(() => setFlash(null), 5000);
+                  }}
+                >
+                  <Ban className="h-4 w-4" />
+                  Void payment
+                </Button>
+              </>
+            )
+          }
+        >
+          <div className="space-y-6">
+            <Facts
+              items={[
+                { label: "Paid to", value: pay.vendor_name },
+                { label: "Settles invoice", value: pay.invoice_number },
+                { label: "Method", value: pay.method === "ACH" ? "Bank transfer" : "Cheque" },
+                { label: "Reference", value: <span className="font-mono text-xs">{pay.reference}</span> },
+                { label: "Drawn from", value: pay.bank_account },
+                { label: "Amount", value: <span className="tabular font-semibold">{money(pay.amount)}</span> },
+              ]}
+            />
 
-      <Modal open={payModal} onClose={() => setPayModal(false)} title="Create Payment">
-        <form onSubmit={createPayment} className="space-y-3">
-          <p className="text-sm text-slate-600">
-            Paying <b>{chosen[0] ? vName(chosen[0].vendor_id) : ""}</b> — {chosen.length} invoice(s), total <b>${chosenTotal.toFixed(2)}</b>.
-            {chosenVendors.size > 1 && <span className="text-rose-600"> Select one vendor only.</span>}
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Method</Label>
-              <Select value={pay.payment_method_id} onChange={(e) => setPay({ ...pay, payment_method_id: e.target.value })}>
-                <option value="">— none —</option>
-                {methods.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.method_type})</option>)}
-              </Select>
-            </div>
-            <div><Label>Date</Label><Input type="date" value={pay.payment_date} onChange={(e) => setPay({ ...pay, payment_date: e.target.value })} required /></div>
+            <Card className={pay.cleared ? "border-success/30 bg-success/5" : "border-warning/30 bg-warning/5"}>
+              <p className="text-sm font-semibold">
+                {pay.cleared ? "Cleared the bank" : "Still in transit"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {pay.cleared
+                  ? "This payment has been matched against the bank statement during reconciliation."
+                  : "The payment has been issued but has not yet appeared on a bank statement. It will clear at the next reconciliation."}
+              </p>
+            </Card>
+
+            <Card className="border-primary/25 bg-accent/40">
+              <p className="text-sm font-semibold">Why this cannot simply be deleted</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Once a payment posts to the ledger it is permanent. Voiding it
+                creates a reversing entry dated today rather than erasing the
+                original — which is what keeps the financial statements
+                defensible to an auditor.
+              </p>
+            </Card>
           </div>
-          <div><Label>Reference (check #/trace)</Label><Input value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} /></div>
-          <Button type="submit" disabled={busy === "pay" || chosenVendors.size !== 1}>{busy === "pay" ? "Paying…" : "Create Payment"}</Button>
-        </form>
-      </Modal>
-
-      <Modal open={batchModal} onClose={() => setBatchModal(false)} title="Batch Payment Run">
-        <form onSubmit={runBatch} className="space-y-3">
-          <p className="text-sm text-slate-600">Pays every invoice due on/before the date — one payment per vendor.</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Method</Label>
-              <Select value={batch.payment_method_id} onChange={(e) => setBatch({ ...batch, payment_method_id: e.target.value })}>
-                <option value="">— none —</option>
-                {methods.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.method_type})</option>)}
-              </Select>
-            </div>
-            <div><Label>Payment date</Label><Input type="date" value={batch.payment_date} onChange={(e) => setBatch({ ...batch, payment_date: e.target.value })} required /></div>
-          </div>
-          <div><Label>Pay invoices due on/before</Label><Input type="date" value={batch.due_before} onChange={(e) => setBatch({ ...batch, due_before: e.target.value })} required /></div>
-          <Button type="submit" disabled={busy === "batch"}>{busy === "batch" ? "Running…" : "Run Batch"}</Button>
-        </form>
-      </Modal>
-    </div>
+        </DetailSheet>
+      )}
+    </PageShell>
   );
 }

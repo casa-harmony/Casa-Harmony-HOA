@@ -1,125 +1,276 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  AlertTriangle, Gavel, HandCoins, Landmark, PiggyBank, Presentation,
+  TrendingUp, Wallet,
+} from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch, downloadFile } from "@/lib/api";
-import type { ExecDashboard, ForecastRow } from "@/lib/types";
-import { Alert, Button, Card, Input, Spinner } from "@/components/ui";
+import { useApi } from "@/lib/use-api";
+import { Badge, Card } from "@/components/ui";
+import {
+  Column, DataTable, PageHeader, PageShell, SectionGuide, StatCard, StatGrid,
+  StatusBadge, money,
+} from "@/components/app/kit";
+import {
+  AgeingChart, BudgetActualChart, CashTrendChart, ChartCard,
+  InflowOutflowChart,
+} from "@/components/app/charts";
 
-const BUCKETS = ["Current", "1-30", "31-60", "61-90", "90+"];
+export default function BoardPage() {
+  const { tenant } = useAuth();
+  const { data: board } = useApi<any>("/board/exec-dashboard", null);
+  const { data: forecast } = useApi<any[]>("/board/cash-flow-forecast", []);
+  const { data: aging } = useApi<any>("/subledger/aging", null);
+  const { data: cases } = useApi<any[]>("/collections/cases", []);
+  const { data: budget } = useApi<any[]>("/budgeting/lines", []);
 
-export default function BoardDashboardPage() {
-  const { token, activeTenantId } = useAuth();
-  const [dash, setDash] = useState<ExecDashboard | null>(null);
-  const [forecast, setForecast] = useState<ForecastRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [opts, setOpts] = useState({ start: "2026-07-01", months: "6", as_of: "2026-06-30" });
+  const forecastCols: Column<any>[] = [
+    { key: "period", header: "Month", render: (r) => <span className="font-medium">{r.period}</span> },
+    { key: "opening", header: "Opening", numeric: true, render: (r) => money(r.opening, 0) },
+    { key: "in", header: "Money in", numeric: true, render: (r) => <span className="text-success">+{money(r.inflow, 0)}</span> },
+    { key: "out", header: "Money out", numeric: true, render: (r) => <span className="text-destructive">−{money(r.outflow, 0)}</span> },
+    {
+      key: "end",
+      header: "Closing",
+      numeric: true,
+      render: (r) => <span className="font-semibold">{money(r.ending, 0)}</span>,
+    },
+  ];
 
-  async function load() {
-    if (!token || !activeTenantId) return;
-    setLoading(true);
-    try {
-      const [d, f] = await Promise.all([
-        apiFetch<ExecDashboard>("/board/exec-dashboard", { token, tenantId: activeTenantId }),
-        apiFetch<ForecastRow[]>(`/board/cash-flow-forecast?start=${opts.start}&months=${opts.months}`, { token, tenantId: activeTenantId }),
-      ]);
-      setDash(d); setForecast(f);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
+  const caseCols: Column<any>[] = [
+    { key: "unit", header: "Unit", render: (c) => <span className="font-medium">{c.unit}</span> },
+    { key: "name", header: "Homeowner", render: (c) => c.name },
+    { key: "stage", header: "Stage", render: (c) => <StatusBadge status={c.stage} /> },
+    { key: "days", header: "Days overdue", numeric: true, render: (c) => c.days_past_due },
+    {
+      key: "bal",
+      header: "Owing",
+      numeric: true,
+      render: (c) => <span className="font-semibold text-destructive">{money(c.balance)}</span>,
+    },
+  ];
+
+  if (!board) return null;
+
+  const maxAging = Math.max(...Object.values(aging?.totals ?? { a: 1 }).map(Number));
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-slate-800">Board Dashboard</h1>
-        <p className="text-sm text-slate-500">Fund health, delinquency, and cash-flow forecast.</p>
+    <PageShell>
+      <PageHeader
+        eyebrow="Administration"
+        title="Board Dashboard"
+        description={`The financial position of ${tenant?.name} as the board sees it — written for volunteers, not accountants.`}
+      />
+
+      <SectionGuide
+        what="A plain-English summary of the community's finances, built for elected homeowner volunteers who are not finance professionals and who meet once a month."
+        who="Board members primarily, plus the property manager who presents at the meeting. This same content is bundled into the monthly board packet and emailed automatically."
+        how={[
+          "Every figure is drawn from posted ledger data, so it agrees with the formal accounts.",
+          "Cash is split by fund, because operating money and reserve savings are legally separate.",
+          "The ageing table shows how long money has been owed — the further right, the harder it is to collect.",
+          "The forecast projects the next six months from current dues, known bills and historical patterns.",
+          "Delinquency is shown by stage so the board can see who is close to legal action.",
+        ]}
+        flow="Read-only. This screen consumes what every other section produces and pushes nothing back."
+      />
+
+      <StatGrid>
+        <StatCard label="Total cash" value={money(board.cash_total, 0)} hint="Both funds combined" tone="primary" icon={Wallet} />
+        <StatCard label="Owed by homeowners" value={money(board.ar_open_total, 0)} tone="brass" icon={HandCoins} />
+        <StatCard
+          label="Reserve funded"
+          value={`${board.reserve_funded_pct}%`}
+          hint="Against the 2025 study"
+          tone={board.reserve_funded_pct >= 70 ? "success" : "warning"}
+          icon={PiggyBank}
+        />
+        <StatCard label="Occupancy" value={`${board.occupancy_pct}%`} hint={`${board.units} units`} icon={TrendingUp} />
+      </StatGrid>
+
+      {/* funds */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider">
+          The two funds
+        </h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {board.funds.map((f: any) => (
+            <Card key={f.fund} padded={false}>
+              <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
+                <div>
+                  <p className="flex items-center gap-1.5 text-sm font-semibold">
+                    <Landmark className={f.fund === "Reserve" ? "h-4 w-4 text-brass" : "h-4 w-4 text-primary"} />
+                    {f.fund} Fund
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {f.fund === "Operating"
+                      ? "Pays this month's bills"
+                      : "Saved for major repairs years ahead"}
+                  </p>
+                </div>
+                <p className="stat-value shrink-0 text-2xl font-semibold">
+                  {money(f.cash, 0)}
+                </p>
+              </div>
+              <div className="px-5 py-3">
+                <p className="text-xs text-muted-foreground">
+                  {f.ar_open > 0 ? (
+                    <>
+                      <span className="font-semibold text-foreground">
+                        {money(f.ar_open, 0)}
+                      </span>{" "}
+                      still owed into this fund by homeowners
+                    </>
+                  ) : (
+                    "Funded entirely by transfers from the operating fund"
+                  )}
+                </p>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* ageing */}
+        {aging && (
+          <ChartCard
+            title="How long money has been owed"
+            caption={`The further right, the harder it becomes to collect · ${money(aging.grand_total, 0)} outstanding in total`}
+            table={{
+              head: ["Bucket", "Outstanding"],
+              rows: Object.entries(aging.totals).map(([k, v]) => [
+                k === "Current" ? "Not yet due" : `${k} days overdue`,
+                money(Number(v), 0),
+              ]),
+            }}
+          >
+            <AgeingChart
+              data={Object.entries(aging.totals).map(([bucket, amount]) => ({
+                bucket,
+                amount: Number(amount),
+              }))}
+            />
+          </ChartCard>
+        )}
+
+        {/* budget variance */}
+        <ChartCard
+          title="Spending against budget"
+          caption="Where the community is over or under for the year"
+          table={{
+            head: ["Category", "Fund", "Budget", "Actual", "Variance"],
+            rows: budget.map((b) => [
+              b.name,
+              b.fund,
+              money(b.budget, 0),
+              money(b.actual, 0),
+              `${b.variance < 0 ? "over " : "under "}${money(Math.abs(b.variance), 0)}`,
+            ]),
+          }}
+        >
+          <BudgetActualChart
+            data={budget.slice(0, 6).map((b) => ({
+              name: b.name,
+              budget: b.budget,
+              actual: b.actual,
+            }))}
+          />
+        </ChartCard>
       </div>
-      {error && <Alert kind="error">{error}</Alert>}
 
-      {loading ? <Spinner /> : dash && (
-        <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[["Cash on hand", `$${Number(dash.cash_total).toFixed(2)}`],
-              ["AR outstanding", `$${Number(dash.ar_open_total).toFixed(2)}`],
-              ["Delinquent", `$${Number(dash.delinquent_total).toFixed(2)}`],
-              ["Open cases", String(dash.open_cases)]].map(([k, v]) => (
-              <Card key={k}>
-                <div className="text-xs text-slate-400">{k}</div>
-                <div className="mt-1 text-xl font-bold text-slate-800">{v}</div>
-              </Card>
-            ))}
+      {/* cash charts */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ChartCard
+          title="Operating cash, next six months"
+          caption="Projected closing balance each month"
+          table={{
+            head: ["Month", "Opening", "Closing"],
+            rows: forecast.map((f) => [
+              f.period,
+              money(f.opening, 0),
+              money(f.ending, 0),
+            ]),
+          }}
+        >
+          <CashTrendChart
+            data={forecast.map((f) => ({
+              period: f.period.replace(" 2026", ""),
+              ending: f.ending,
+            }))}
+          />
+        </ChartCard>
+
+        <ChartCard
+          title="Money in against money out"
+          caption="Dues collected versus bills paid, per month"
+          table={{
+            head: ["Month", "Money in", "Money out"],
+            rows: forecast.map((f) => [
+              f.period,
+              money(f.inflow, 0),
+              money(f.outflow, 0),
+            ]),
+          }}
+        >
+          <InflowOutflowChart
+            data={forecast.map((f) => ({
+              period: f.period.replace(" 2026", ""),
+              inflow: f.inflow,
+              outflow: f.outflow,
+            }))}
+          />
+        </ChartCard>
+      </div>
+
+      {/* delinquency */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wider">
+              Homeowners in collections
+            </h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {board.open_cases} open case(s) · {board.active_plans} on a payment
+              plan · {board.filed_liens} lien(s) filed
+            </p>
           </div>
+          {board.filed_liens > 0 && (
+            <Badge tone="danger">
+              <Gavel className="h-3 w-3" />
+              {board.filed_liens} lien filed
+            </Badge>
+          )}
+        </div>
+        <DataTable rows={cases} columns={caseCols} />
+      </section>
 
-          <Card>
-            <h2 className="mb-2 text-sm font-semibold text-slate-700">Fund health</h2>
-            <table className="w-full text-left text-sm">
-              <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                <th className="py-1 pr-3">Fund</th><th className="py-1 pr-3 text-right">Cash</th>
-                <th className="py-1 pr-3 text-right">AR open</th></tr></thead>
-              <tbody>
-                {dash.funds.map((f) => (
-                  <tr key={f.fund} className="border-b border-slate-100">
-                    <td className="py-1 pr-3 font-medium">{f.fund}</td>
-                    <td className="py-1 pr-3 text-right">${Number(f.cash).toFixed(2)}</td>
-                    <td className="py-1 pr-3 text-right">${Number(f.ar_open).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+      {/* forecast */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider">
+            Six-month cash forecast
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Projected from current dues, known commitments and historical
+            spending. Operating fund only.
+          </p>
+        </div>
+        <DataTable rows={forecast} columns={forecastCols} getRowKey={(r) => r.period} />
+      </section>
 
-          <Card>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold text-slate-700">Board packets & forecast</h2>
-              <Input value={opts.as_of} onChange={(e) => setOpts({ ...opts, as_of: e.target.value })} className="w-32" />
-              <Button variant="secondary" onClick={() => downloadFile(`/board/delinquency-packet/export?as_of=${opts.as_of}`, token!, activeTenantId!, "delinquency_packet.pdf")}>Delinquency packet (PDF)</Button>
-              <Input value={opts.start} onChange={(e) => setOpts({ ...opts, start: e.target.value })} className="w-32" />
-              <Input value={opts.months} onChange={(e) => setOpts({ ...opts, months: e.target.value })} className="w-16" />
-              <Button variant="secondary" onClick={load}>Refresh</Button>
-              <Button variant="secondary" onClick={() => downloadFile(`/board/cash-flow-forecast/export?start=${opts.start}&months=${opts.months}`, token!, activeTenantId!, "cash_flow_forecast.xlsx")}>Forecast (xlsx)</Button>
-            </div>
-            <table className="w-full text-left text-sm">
-              <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                <th className="py-1 pr-3">Period</th><th className="py-1 pr-3">Fund</th>
-                <th className="py-1 pr-3 text-right">Opening</th><th className="py-1 pr-3 text-right">Inflows</th>
-                <th className="py-1 pr-3 text-right">Outflows</th><th className="py-1 pr-3 text-right">Ending</th></tr></thead>
-              <tbody>
-                {forecast.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-1 pr-3">{r.period}</td>
-                    <td className="py-1 pr-3">{r.fund}</td>
-                    <td className="py-1 pr-3 text-right">${Number(r.opening).toFixed(0)}</td>
-                    <td className="py-1 pr-3 text-right text-emerald-600">+${Number(r.inflow).toFixed(0)}</td>
-                    <td className="py-1 pr-3 text-right text-rose-600">-${Number(r.outflow).toFixed(0)}</td>
-                    <td className="py-1 pr-3 text-right font-medium">${Number(r.ending).toFixed(0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-
-          <Card>
-            <h2 className="mb-2 text-sm font-semibold text-slate-700">Aging by Fund</h2>
-            <table className="w-full text-left text-sm">
-              <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                <th className="py-1 pr-3">Fund</th>{BUCKETS.map((b) => <th key={b} className="py-1 pr-3 text-right">{b}</th>)}</tr></thead>
-              <tbody>
-                {Object.entries(dash.aging_by_fund).map(([fund, b]) => (
-                  <tr key={fund} className="border-b border-slate-100">
-                    <td className="py-1 pr-3 font-medium">{fund}</td>
-                    {BUCKETS.map((k) => <td key={k} className="py-1 pr-3 text-right">${Number(b[k] || 0).toFixed(0)}</td>)}
-                  </tr>
-                ))}
-                {Object.keys(dash.aging_by_fund).length === 0 && <tr><td colSpan={6} className="py-2 text-slate-400">No delinquencies.</td></tr>}
-              </tbody>
-            </table>
-          </Card>
-        </>
-      )}
-    </div>
+      <Card className="border-primary/25 bg-accent/40">
+        <p className="flex items-center gap-1.5 text-sm font-semibold">
+          <Presentation className="h-4 w-4 text-primary" />
+          The monthly board packet
+        </p>
+        <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground">
+          Everything on this screen, plus the trial balance, income statement and
+          delinquency report, is assembled into a single document on the fifth of
+          each month and sent to every board member automatically. Nobody has to
+          remember to produce it — see the Scheduled Jobs screen.
+        </p>
+      </Card>
+    </PageShell>
   );
 }

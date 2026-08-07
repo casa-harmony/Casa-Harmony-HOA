@@ -1,229 +1,214 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import {
+  Activity, CheckCircle2, Rocket, ShieldCheck, TriangleAlert, XCircle,
+} from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch, downloadFile } from "@/lib/api";
-import { Alert, Badge, Button, Card, Spinner } from "@/components/ui";
+import { useApi } from "@/lib/use-api";
+import { Alert, Badge, Button, Card } from "@/components/ui";
+import {
+  PageHeader, PageShell, SectionGuide, StatCard, StatGrid, shortDate,
+} from "@/components/app/kit";
+import { cn } from "@/lib/utils";
 
-interface ChecklistItem { code: string; title: string; category: string; status: string; detail: string; manual: boolean; }
-interface Checklist {
-  health: Record<string, unknown>;
-  items: ChecklistItem[];
-  summary: Record<string, number>;
-  go_live_ready: boolean;
-}
-
-const TONE: Record<string, string> = { PASS: "A", WARN: "O", FAIL: "R", INFO: "none" };
-
-interface GoLiveStatus { is_live: boolean; went_live_at: string | null; last_validation_at: string | null; last_validation_passed: boolean; }
-interface ValidationCheck { check: string; ok: boolean; detail: string; }
-interface RotationStep { code: string; title: string; instructions: string; status: string; notes: string | null; }
+const STATUS_META: Record<string, { tone: string; icon: React.ElementType; label: string }> = {
+  PASS: { tone: "success", icon: CheckCircle2, label: "Ready" },
+  WARN: { tone: "warning", icon: TriangleAlert, label: "Needs attention" },
+  FAIL: { tone: "danger", icon: XCircle, label: "Blocking" },
+  INFO: { tone: "info", icon: Activity, label: "For information" },
+};
 
 export default function GoLivePage() {
-  const { token, activeTenantId } = useAuth();
-  const [data, setData] = useState<Checklist | null>(null);
-  const [status, setStatus] = useState<GoLiveStatus | null>(null);
-  const [validation, setValidation] = useState<ValidationCheck[] | null>(null);
-  const [guide, setGuide] = useState<RotationStep[]>([]);
-  const [ready, setReady] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const { tenant } = useAuth();
+  const { data: checklist } = useApi<any>("/compliance/checklist", null);
+  const { data: status } = useApi<any>("/compliance/go-live/status", null);
+  const [flash, setFlash] = useState<string | null>(null);
 
-  async function load() {
-    if (!token || !activeTenantId) return;
-    setLoading(true);
-    try {
-      const [cl, st, g] = await Promise.all([
-        apiFetch<Checklist>("/compliance/checklist", { token, tenantId: activeTenantId }),
-        apiFetch<GoLiveStatus>("/compliance/go-live/status", { token, tenantId: activeTenantId }).catch(() => null),
-        apiFetch<RotationStep[]>("/compliance/cutover/guide", { token, tenantId: activeTenantId }).catch(() => []),
-      ]);
-      setData(cl); setStatus(st); setGuide(g);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
+  if (!checklist) return null;
 
-  async function exec(action: string, path: string, method = "POST") {
-    setBusy(action); setError(null); setMsg(null);
-    try {
-      const r = await apiFetch<Record<string, unknown>>(path, { method, token, tenantId: activeTenantId });
-      if (action === "validate") setValidation((r as { checks: ValidationCheck[] }).checks);
-      if (action === "backup") setMsg(`Backup: ${r.status} ${r.filename ? `(${r.filename})` : ""}`);
-      if (action === "activate") setMsg("Go-Live activated.");
-      if (action === "deactivate") setMsg("Go-Live deactivated.");
-      if (action === "cutover") {
-        setValidation((r as { checks: ValidationCheck[] }).checks);
-        setReady(Boolean((r as { production_ready: boolean }).production_ready));
-        setMsg(`Cutover: validation ${(r as { validation_passed: boolean }).validation_passed ? "PASSED" : "FAILED"}, backup ${(r as { backup: { status: string } }).backup.status}.`);
-      }
-      await load();
-    } catch (e) { setError(e instanceof Error ? e.message : `${action} failed`); }
-    finally { setBusy(null); }
-  }
+  const items = checklist.items ?? [];
+  const summary = checklist.summary ?? { PASS: 0, WARN: 0, FAIL: 0, INFO: 0 };
+  const health = checklist.health ?? {};
+  const blocking = summary.FAIL ?? 0;
+  const readyPct = Math.round((summary.PASS / Math.max(1, items.length)) * 100);
 
-  async function rotate(code: string) {
-    setBusy(code); setError(null); setMsg(null);
-    try {
-      await apiFetch(`/compliance/go-live/rotate/${code}`, { method: "POST", token, tenantId: activeTenantId });
-      setMsg(`Recorded rotation: ${code}.`);
-      await load();
-    } catch (e) { setError(e instanceof Error ? e.message : "Rotation failed"); }
-    finally { setBusy(null); }
-  }
-
-  async function setItem(code: string, status: string) {
-    setBusy(code); setError(null);
-    try {
-      await apiFetch(`/compliance/items/${code}`, { method: "PUT", token, tenantId: activeTenantId, body: { status } });
-      await load();
-    } catch (e) { setError(e instanceof Error ? e.message : "Update failed"); }
-    finally { setBusy(null); }
-  }
-
-  const HEALTH_LABELS: Record<string, string> = {
-    gl_posted_batches: "Posted GL batches", gl_unbalanced_batches: "Unbalanced batches",
-    open_periods: "Open periods", closed_periods: "Closed periods",
-    budget_control_mode: "Budget control", ap_open_holds: "AP invoices on hold",
-    unreconciled_statements: "Unreconciled statements", active_assets: "Active fixed assets",
-    coa_structures: "COA structures", vendors: "Vendors", audit_events: "Audit events",
-  };
+  const grouped = items.reduce((acc: Record<string, any[]>, it: any) => {
+    (acc[it.category] ||= []).push(it);
+    return acc;
+  }, {});
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800">Go-Live & Compliance</h1>
-          <p className="text-sm text-slate-500">System health, readiness checklist, and compliance package.</p>
+    <PageShell>
+      <PageHeader
+        eyebrow="Administration"
+        title="Go-Live & Compliance"
+        description={`Whether ${tenant?.name} is ready to stop being a test system and start handling real money.`}
+        actions={
+          <Button disabled={blocking > 0} onClick={() => setFlash("In the live product this switches the community to live operation, locks migration rollback and enables live payment processing.")}>
+            <Rocket className="h-4 w-4" />
+            {blocking > 0 ? `${blocking} blocking issue(s)` : "Go live"}
+          </Button>
+        }
+      />
+
+      <SectionGuide
+        what="The pre-flight check. Before a community starts taking real payments there is a list of things that must be true — the books must balance, approvals must be configured, insurance must be current, the payment gateway must be switched from test to live."
+        who="Platform staff and senior administrators run this with the client before launch. The board usually wants to see the result."
+        how={[
+          "Each check runs against live data — this is not a manual tick-list somebody fills in.",
+          "Checks are graded: ready, needs attention, or blocking.",
+          "A blocking issue prevents go-live entirely until it is resolved.",
+          "Items marked as needing attention are judgement calls for a person to sign off.",
+          "Going live locks migration rollback and switches the payment gateway to live mode.",
+        ]}
+        flow="Reads from every other section — the ledger, payables, purchasing, cash, documents and setup. Nothing writes back until the moment the community actually goes live."
+      />
+
+      {flash && <Alert kind="info">{flash}</Alert>}
+
+      {status && !status.is_live && (
+        <Alert kind="warning" title="This community is not live yet">
+          It is running in preparation mode. No real money moves, the payment
+          gateway is in test mode, and data imports can still be rolled back.
+        </Alert>
+      )}
+
+      <StatGrid>
+        <StatCard label="Checks passing" value={`${summary.PASS} of ${items.length}`} hint={`${readyPct}% ready`} tone={readyPct > 80 ? "success" : "warning"} icon={CheckCircle2} />
+        <StatCard label="Need attention" value={summary.WARN} tone={summary.WARN ? "warning" : "success"} icon={TriangleAlert} />
+        <StatCard label="Blocking" value={blocking} tone={blocking ? "danger" : "success"} icon={XCircle} />
+        <StatCard label="Last validated" value={status ? shortDate(status.last_validation_at) : "—"} icon={Activity} />
+      </StatGrid>
+
+      {/* readiness bar */}
+      <Card>
+        <div className="flex items-baseline justify-between">
+          <p className="text-sm font-semibold">Overall readiness</p>
+          <p className="tabular text-sm font-semibold">{readyPct}%</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => downloadFile("/compliance/package/export", token!, activeTenantId!, "go_live_package.xlsx")}>Package xlsx</Button>
-          <Button variant="secondary" onClick={() => downloadFile("/compliance/go-live/execution-report/export", token!, activeTenantId!, "go_live_execution.xlsx")}>Execution xlsx</Button>
+        <div className="mt-2 flex h-3 overflow-hidden rounded-full bg-muted">
+          {summary.PASS > 0 && (
+            <div className="bg-success" style={{ width: `${(summary.PASS / items.length) * 100}%` }} />
+          )}
+          {summary.WARN > 0 && (
+            <div className="bg-warning" style={{ width: `${(summary.WARN / items.length) * 100}%` }} />
+          )}
+          {summary.FAIL > 0 && (
+            <div className="bg-destructive" style={{ width: `${(summary.FAIL / items.length) * 100}%` }} />
+          )}
         </div>
-      </div>
-      {error && <Alert kind="error">{error}</Alert>}
-      {msg && <Alert kind="success">{msg}</Alert>}
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-success" /> {summary.PASS} ready
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-warning" /> {summary.WARN} need attention
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-destructive" /> {summary.FAIL} blocking
+          </span>
+        </div>
+      </Card>
 
-      {loading || !data ? <Spinner /> : (
-        <>
-          <Card>
-            <div className="flex flex-wrap items-center gap-4">
-              <div className={`rounded-lg px-4 py-2 text-sm font-bold ${data.go_live_ready ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                {data.go_live_ready ? "✓ Go-Live Ready" : "⚠ Not yet ready"}
-              </div>
-              {(["PASS", "WARN", "FAIL", "INFO"] as const).map((s) => (
-                <span key={s} className="text-sm text-slate-600">
-                  <Badge tone={TONE[s]}>{s}</Badge> {data.summary[s] || 0}
-                </span>
-              ))}
-            </div>
-          </Card>
-
-          <Card>
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-sm font-semibold text-slate-700">Execution</h2>
-              <span className="text-sm">
-                Status: <Badge tone={status?.is_live ? "A" : "none"}>{status?.is_live ? "LIVE" : "NOT LIVE"}</Badge>
-                {status?.last_validation_at && (
-                  <span className="ml-2 text-xs text-slate-400">
-                    last validated {new Date(status.last_validation_at).toLocaleString()} ·{" "}
-                    {status.last_validation_passed ? "passed" : "failed"}
-                  </span>
-                )}
-              </span>
-              <div className="ml-auto flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => exec("validate", "/compliance/go-live/validate")} disabled={busy === "validate"}>Validate</Button>
-                <Button variant="secondary" onClick={() => exec("backup", "/compliance/go-live/backup")} disabled={busy === "backup"}>Run Backup</Button>
-                {status?.is_live ? (
-                  <Button variant="secondary" onClick={() => exec("deactivate", "/compliance/go-live/deactivate")} disabled={busy === "deactivate"}>Deactivate</Button>
-                ) : (
-                  <Button onClick={() => exec("activate", "/compliance/go-live/activate")} disabled={busy === "activate"}>Activate Go-Live</Button>
-                )}
-              </div>
-            </div>
-            {validation && (
-              <div className="mt-3 space-y-1">
-                {validation.map((c) => (
-                  <div key={c.check} className="flex items-center justify-between border-b border-slate-100 py-1 text-sm">
-                    <span>{c.check} <span className="text-xs text-slate-400">{c.detail}</span></span>
-                    <Badge tone={c.ok ? "A" : "R"}>{c.ok ? "PASS" : "FAIL"}</Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          <Card>
-            <div className="mb-2 flex flex-wrap items-center gap-3">
-              <h2 className="text-sm font-semibold text-slate-700">Production Cutover</h2>
-              {ready !== null && <Badge tone={ready ? "A" : "R"}>{ready ? "PRODUCTION READY" : "NOT READY"}</Badge>}
-              <div className="ml-auto flex gap-2">
-                <Button onClick={() => exec("cutover", "/compliance/cutover/execute")} disabled={busy === "cutover"}>
-                  {busy === "cutover" ? "Running…" : "Execute cutover"}
-                </Button>
-                <Button variant="secondary" onClick={() => downloadFile("/compliance/cutover/report/export", token!, activeTenantId!, "cutover_report.xlsx")}>Cutover report</Button>
-              </div>
-            </div>
-            <p className="mb-2 text-xs text-slate-400">
-              Execute runs final validation + a fresh backup. Complete the key rotations below, then
-              activate Go-Live (Execution panel) to reach Production Ready.
-            </p>
-            {guide.map((g) => (
-              <div key={g.code} className="border-t border-slate-100 py-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{g.title}</span>
-                  {g.status === "DONE"
-                    ? <Badge tone="A">rotated</Badge>
-                    : <Button variant="secondary" onClick={() => rotate(g.code)} disabled={busy === g.code}>Mark rotated</Button>}
+      {/* checks by category */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider">
+          The checklist
+        </h2>
+        <div className="space-y-4">
+          {Object.entries(grouped).map(([category, list]) => (
+            <div key={category}>
+              <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {category}
+              </p>
+              <Card padded={false}>
+                <div className="divide-y">
+                  {(list as any[]).map((it) => {
+                    const meta = STATUS_META[it.status] ?? STATUS_META.INFO;
+                    const Icon = meta.icon;
+                    return (
+                      <div key={it.code} className="flex items-start gap-3 px-5 py-3.5">
+                        <Icon
+                          className={cn(
+                            "mt-0.5 h-4 w-4 shrink-0",
+                            it.status === "PASS" && "text-success",
+                            it.status === "WARN" && "text-warning",
+                            it.status === "FAIL" && "text-destructive",
+                            it.status === "INFO" && "text-info"
+                          )}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium">{it.title}</p>
+                            <Badge tone={meta.tone as any}>{meta.label}</Badge>
+                            {it.manual && <Badge tone="neutral">Human sign-off</Badge>}
+                          </div>
+                          <p className="mt-0.5 text-sm text-muted-foreground">
+                            {it.detail}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">{g.instructions}</p>
+              </Card>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* system health */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider">
+            System health
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Live counts the checks are derived from
+          </p>
+        </div>
+        <Card padded={false}>
+          <div className="grid grid-cols-2 divide-x divide-y sm:grid-cols-3 lg:grid-cols-4">
+            {[
+              ["Posted journal batches", health.gl_posted_batches],
+              ["Unbalanced batches", health.gl_unbalanced_batches],
+              ["Open periods", health.open_periods],
+              ["Closed periods", health.closed_periods],
+              ["Budget control mode", health.budget_control_mode],
+              ["Invoices on hold", health.ap_open_holds],
+              ["Unreconciled statements", health.unreconciled_statements],
+              ["Active fixed assets", health.active_assets],
+              ["Chart of accounts", health.coa_structures],
+              ["Vendors", health.vendors],
+              ["Audit events recorded", health.audit_events?.toLocaleString?.() ?? health.audit_events],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="px-4 py-3">
+                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {label}
+                </p>
+                <p className="stat-value mt-0.5 text-lg font-semibold">
+                  {value ?? "—"}
+                </p>
               </div>
             ))}
-          </Card>
-
-          <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <Card>
-              <h2 className="mb-2 text-sm font-semibold text-slate-700">Checklist</h2>
-              <table className="w-full text-left text-sm">
-                <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                  <th className="py-1 pr-3">Item</th><th className="py-1 pr-3">Category</th>
-                  <th className="py-1 pr-3">Status</th><th className="py-1 pr-3 text-right">Action</th></tr></thead>
-                <tbody>
-                  {data.items.map((it) => (
-                    <tr key={it.code} className="border-b border-slate-100">
-                      <td className="py-1.5 pr-3">{it.title}<div className="text-xs text-slate-400">{it.detail}</div></td>
-                      <td className="py-1.5 pr-3 text-xs">{it.category}</td>
-                      <td className="py-1.5 pr-3"><Badge tone={TONE[it.status]}>{it.status}</Badge></td>
-                      <td className="py-1.5 pr-3 text-right">
-                        {it.manual && (
-                          <div className="flex justify-end gap-1">
-                            <Button variant="secondary" onClick={() => setItem(it.code, "DONE")} disabled={busy === it.code}>Done</Button>
-                            <Button variant="secondary" onClick={() => setItem(it.code, "NA")} disabled={busy === it.code}>N/A</Button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
-
-            <Card>
-              <h2 className="mb-2 text-sm font-semibold text-slate-700">System Health</h2>
-              {Object.entries(HEALTH_LABELS).map(([k, label]) => (
-                <div key={k} className="flex items-center justify-between border-b border-slate-100 py-1 text-sm">
-                  <span className="text-slate-600">{label}</span>
-                  <span className="font-medium">{String(data.health[k])}</span>
-                </div>
-              ))}
-            </Card>
           </div>
-        </>
-      )}
-    </div>
+        </Card>
+      </section>
+
+      <Card className="border-primary/25 bg-accent/40">
+        <p className="flex items-center gap-1.5 text-sm font-semibold">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          What happens the moment a community goes live
+        </p>
+        <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+          <li>· The payment gateway switches from test to live and real money begins moving</li>
+          <li>· Data imports can no longer be rolled back</li>
+          <li>· Scheduled jobs start running against real residents</li>
+          <li>· The audit trail becomes the system of record for compliance</li>
+          <li>· Corrections from this point are made by posting entries, never by editing history</li>
+        </ul>
+      </Card>
+    </PageShell>
   );
 }

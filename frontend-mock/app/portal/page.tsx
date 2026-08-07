@@ -2,300 +2,520 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { API_BASE } from "@/lib/api";
-import type {
-  PortalDashboard, PortalDocument, PortalInvoice, PortalNotification, PortalReceiptItem, PortalUnit,
-} from "@/lib/types";
+import {
+  ArrowRight, CheckCircle2, CreditCard, Download, FileText, Home, LogOut,
+  MessageSquarePlus, Receipt, Ticket, Wallet,
+} from "lucide-react";
+import { toast } from "sonner";
+import { apiFetch } from "@/lib/api";
+import { TENANTS } from "@/lib/mock-data/seed";
+import {
+  Badge, Button, Card, Input, Label, Modal, Select, Spinner, Textarea,
+} from "@/components/ui";
+import { ThemeToggle } from "@/components/theme";
+import {
+  EmptyState, StatCard, StatGrid, StatusBadge, money, relTime, shortDate,
+} from "@/components/app/kit";
+import { cn } from "@/lib/utils";
 
-type Tab = "assessments" | "payments" | "documents";
+type Tab = "assessments" | "payments" | "documents" | "requests";
 
-export default function PortalDashboardPage() {
+export default function PortalPage() {
   const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
-  const [resident, setResident] = useState<{ full_name: string; resident_type: string; must_change_password?: boolean } | null>(null);
-  const [pwOpen, setPwOpen] = useState(false);
-  const [pw, setPw] = useState({ current_password: "", new_password: "" });
-  const [dash, setDash] = useState<PortalDashboard | null>(null);
-  const [notifs, setNotifs] = useState<PortalNotification[]>([]);
-  const [units, setUnits] = useState<PortalUnit[]>([]);
-  const [selected, setSelected] = useState<PortalUnit | null>(null);
-  const [tab, setTab] = useState<Tab>("assessments");
-  const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
-  const [receipts, setReceipts] = useState<PortalReceiptItem[]>([]);
-  const [docs, setDocs] = useState<PortalDocument[]>([]);
-  const [collections, setCollections] = useState<{ payment_plans: { plan_number: string; status: string; remaining: string; next_due: string | null }[]; liens: { lien_number: string; status: string; amount: string }[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [session, setSession] = useState<{ residentId: string; tenantId: string } | null>(null);
+  const [ready, setReady] = useState(false);
+  const [rev, setRev] = useState(0);
 
-  const api = useCallback(async (path: string, init?: RequestInit) => {
-    const t = localStorage.getItem("casa_portal_token");
-    const res = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json", ...(init?.headers || {}) },
-    });
-    if (res.status === 401) { router.push("/portal/login"); throw new Error("Session expired"); }
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || "Request failed"); }
-    return res;
+  const [dash, setDash] = useState<any>(null);
+  const [units, setUnits] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any>(null);
+  const [tab, setTab] = useState<Tab>("assessments");
+  const [rows, setRows] = useState<any[]>([]);
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [asking, setAsking] = useState(false);
+
+  const tenant = TENANTS.find((t) => t.id === session?.tenantId);
+
+  /* ------------------------------------------------------------- session */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("casa_portal_session");
+      if (!raw) {
+        router.replace("/portal/login");
+        return;
+      }
+      setSession(JSON.parse(raw));
+    } catch {
+      router.replace("/portal/login");
+    } finally {
+      setReady(true);
+    }
   }, [router]);
 
-  const blob = useCallback((path: string, filename: string) => {
-    const t = localStorage.getItem("casa_portal_token");
-    fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${t}` } })
-      .then((r) => r.blob()).then((b) => {
-        const url = URL.createObjectURL(b); const a = document.createElement("a");
-        a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+  const call = useCallback(
+    <T,>(path: string, init?: { method?: string; body?: any }) => {
+      if (!session) return Promise.resolve(null as T);
+      const sep = path.includes("?") ? "&" : "?";
+      return apiFetch<T>(`${path}${sep}resident=${session.residentId}`, {
+        tenantId: session.tenantId,
+        method: init?.method,
+        body: { ...(init?.body ?? {}), resident_id: session.residentId },
       });
-  }, []);
+    },
+    [session]
+  );
+
+  /* ---------------------------------------------------------------- load */
+  useEffect(() => {
+    if (!session) return;
+    call<any>("/portal/dashboard").then(setDash);
+    call<any[]>("/portal/units").then((u) => {
+      setUnits(u ?? []);
+      setSelected((prev: any) => prev ?? (u ?? [])[0] ?? null);
+    });
+    call<any[]>("/portal/tickets").then((t) => setTickets(t ?? []));
+  }, [session, call, rev]);
+
+  /** Tab name → the endpoint that serves it. */
+  const ENDPOINT: Record<Exclude<Tab, "requests">, string> = {
+    assessments: "invoices",
+    payments: "receipts",
+    documents: "documents",
+  };
 
   useEffect(() => {
-    const t = localStorage.getItem("casa_portal_token");
-    if (!t) { router.push("/portal/login"); return; }
-    setToken(t);
-    const r = localStorage.getItem("casa_portal_resident");
-    if (r) setResident(JSON.parse(r));
-    api("/portal/dashboard").then((res) => res.json()).then(setDash).catch(() => {});
-    api("/portal/notifications").then((res) => res.json()).then(setNotifs).catch(() => {});
-    api("/portal/collections").then((res) => res.json()).then(setCollections).catch(() => {});
-    api("/portal/units").then((res) => res.json()).then((u: PortalUnit[]) => {
-      setUnits(u); if (u[0]) selectUnit(u[0]);
-    }).catch((e) => setError(e.message));
+    if (!selected || tab === "requests") return;
+    call<any[]>(
+      `/portal/units/${selected.homeowner_id}/${ENDPOINT[tab]}`
+    ).then((r) => setRows(Array.isArray(r) ? r : []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selected, tab, call, rev]);
 
-  async function loadTabData(u: PortalUnit, which: Tab) {
-    try {
-      if (which === "assessments") setInvoices(await (await api(`/portal/units/${u.homeowner_id}/invoices`)).json());
-      if (which === "payments") setReceipts(await (await api(`/portal/units/${u.homeowner_id}/receipts`)).json());
-      if (which === "documents") setDocs(await (await api(`/portal/units/${u.homeowner_id}/documents`)).json());
-    } catch (e) { setError(e instanceof Error ? e.message : "Failed to load"); }
+  if (!ready || !session) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Spinner label="Opening your account…" />
+      </div>
+    );
   }
-
-  async function selectUnit(u: PortalUnit) { setSelected(u); setTab("assessments"); await loadTabData(u, "assessments"); }
-  function switchTab(t: Tab) { setTab(t); if (selected) loadTabData(selected, t); }
-
-  async function refresh() {
-    api("/portal/dashboard").then((res) => res.json()).then(setDash).catch(() => {});
-    api("/portal/notifications").then((res) => res.json()).then(setNotifs).catch(() => {});
-    const res = await api("/portal/units"); const u: PortalUnit[] = await res.json(); setUnits(u);
-    const cur = u.find((x) => x.homeowner_id === selected?.homeowner_id) || u[0];
-    if (cur) { setSelected(cur); await loadTabData(cur, tab); }
-  }
-
-  async function pay(inv: PortalInvoice) {
-    setBusy(inv.id); setError(null); setMsg(null);
-    try {
-      // Prefer the real hosted gateway when enabled; fall back to the tokenized path.
-      try {
-        const res = await api("/portal/pay/checkout", { method: "POST", body: JSON.stringify({ invoice_id: inv.id, amount: inv.balance }) });
-        const data = await res.json();
-        if (data.checkout_url) { window.location.href = data.checkout_url; return; }
-      } catch { /* gateway not enabled — use tokenized fallback */ }
-      await api("/portal/pay", { method: "POST", body: JSON.stringify({ invoice_id: inv.id, amount: inv.balance }) });
-      setMsg(`Payment of $${Number(inv.balance).toFixed(2)} received for ${inv.invoice_number}. Thank you!`);
-      await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : "Payment failed"); }
-    finally { setBusy(null); }
-  }
-
-  async function changePassword(e: React.FormEvent) {
-    e.preventDefault(); setBusy("pw"); setError(null);
-    try {
-      await api("/portal/change-password", { method: "POST", body: JSON.stringify(pw) });
-      setMsg("Password updated."); setPwOpen(false); setPw({ current_password: "", new_password: "" });
-      if (resident) { const next = { ...resident, must_change_password: false }; setResident(next); localStorage.setItem("casa_portal_resident", JSON.stringify(next)); }
-    } catch (e) { setError(e instanceof Error ? e.message : "Failed to change password"); }
-    finally { setBusy(null); }
-  }
-
-  function logout() {
-    localStorage.removeItem("casa_portal_token"); localStorage.removeItem("casa_portal_resident");
-    router.push("/portal/login");
-  }
-
-  if (!token) return null;
-  const monthly = invoices.filter((i) => !["SPECIAL_ASSESSMENT", "LATE_FEE"].includes(i.invoice_type));
-  const special = invoices.filter((i) => ["SPECIAL_ASSESSMENT", "LATE_FEE"].includes(i.invoice_type));
-  const tone: Record<string, string> = { OVERDUE: "bg-rose-50 text-rose-700", LATE_FEE: "bg-rose-50 text-rose-700", DUE_SOON: "bg-amber-50 text-amber-800" };
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <header className="flex items-center justify-between bg-white px-4 py-3 shadow-sm sm:px-6">
-        <div>
-          <div className="font-bold text-slate-800">Homeowner Portal</div>
-          <div className="text-xs text-slate-500">{resident?.full_name} · {resident?.resident_type}</div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setPwOpen((v) => !v)} className="text-sm text-slate-500 hover:text-slate-800">Password</button>
-          <button onClick={logout} className="text-sm text-slate-500 hover:text-slate-800">Sign out</button>
+    <div className="min-h-screen bg-background">
+      {/* -------------------------------------------------------- top bar */}
+      <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-5xl items-center gap-3 px-5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
+            CH
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold leading-tight">
+              {tenant?.name}
+            </p>
+            <p className="truncate text-2xs text-muted-foreground">
+              Resident Portal
+            </p>
+          </div>
+          <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              localStorage.removeItem("casa_portal_session");
+              router.replace("/portal/login");
+            }}
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign out
+          </Button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
-        {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-        {msg && <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{msg}</div>}
-
-        {resident?.must_change_password && !pwOpen && (
-          <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            <span>Please change your temporary password.</span>
-            <button onClick={() => setPwOpen(true)} className="font-semibold underline">Change now</button>
-          </div>
-        )}
-        {pwOpen && (
-          <form onSubmit={changePassword} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-            <div className="font-semibold text-slate-800">Change password</div>
-            <input type="password" placeholder="Current password" required value={pw.current_password}
-              onChange={(e) => setPw({ ...pw, current_password: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            <input type="password" placeholder="New password (min 8)" minLength={8} required value={pw.new_password}
-              onChange={(e) => setPw({ ...pw, new_password: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            <div className="flex gap-2">
-              <button type="submit" disabled={busy === "pw"} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50">{busy === "pw" ? "Saving…" : "Update"}</button>
-              <button type="button" onClick={() => setPwOpen(false)} className="text-sm text-slate-500">Cancel</button>
-            </div>
-          </form>
-        )}
-
-        {/* Notifications */}
-        {notifs.length > 0 && (
-          <div className="space-y-2">
-            {notifs.map((n, i) => (
-              <div key={i} className={`rounded-lg px-3 py-2 text-sm ${tone[n.category] || "bg-slate-50 text-slate-700"}`}>{n.message}</div>
-            ))}
-          </div>
-        )}
-
-        {/* Dashboard summary */}
-        {dash && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[["Balance due", `$${Number(dash.total_balance).toFixed(2)}`],
-              ["Units", String(dash.units)],
-              ["Open items", String(dash.open_invoices)],
-              ["Next due", dash.next_due_date || "—"]].map(([k, v]) => (
-              <div key={k} className="rounded-xl bg-white p-3 shadow-sm">
-                <div className="text-xs text-slate-400">{k}</div>
-                <div className="mt-1 text-lg font-bold text-slate-800">{v}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Collections status */}
-        {collections && (collections.payment_plans.length > 0 || collections.liens.length > 0) && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
-            <div className="mb-1 font-semibold text-amber-900">Account status</div>
-            {collections.payment_plans.map((p) => (
-              <div key={p.plan_number} className="text-amber-800">
-                Payment plan {p.plan_number} — {p.status}, ${Number(p.remaining).toFixed(2)} remaining
-                {p.next_due ? ` (next due ${p.next_due})` : ""}.
-              </div>
-            ))}
-            {collections.liens.map((l) => (
-              <div key={l.lien_number} className="text-rose-700">Lien {l.lien_number} — {l.status}, ${Number(l.amount).toFixed(2)}.</div>
-            ))}
-          </div>
-        )}
-
-        {/* Unit selector */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {units.map((u) => (
-            <button key={u.homeowner_id} onClick={() => selectUnit(u)}
-              className={`rounded-xl border p-4 text-left ${selected?.homeowner_id === u.homeowner_id ? "border-brand-500 bg-white" : "border-slate-200 bg-white/60"}`}>
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-800">Unit {u.unit_number}</span>
-                {u.is_primary && <span className="text-xs text-brand-600">primary</span>}
-              </div>
-              <div className="mt-1 text-xs text-slate-400">Account {u.account_number}</div>
-              <div className="mt-2 text-lg font-bold text-slate-800">${Number(u.balance).toFixed(2)}<span className="ml-1 text-xs font-normal text-slate-400">balance</span></div>
-            </button>
-          ))}
+      <main className="mx-auto max-w-5xl space-y-6 px-5 py-7">
+        {/* ------------------------------------------------------ greeting */}
+        <div>
+          <p className="font-mono text-2xs font-semibold uppercase tracking-[0.14em] text-primary">
+            Your account
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+            Hello, {dash?.resident_name?.split(" ")[0] ?? "there"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            You can see your own {units.length === 1 ? "unit" : `${units.length} units`},
+            what you owe, and what you have paid. Nothing about anyone else.
+          </p>
         </div>
 
-        {selected && (
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-sm">
-                {(["assessments", "payments", "documents"] as Tab[]).map((t) => (
-                  <button key={t} onClick={() => switchTab(t)}
-                    className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-white font-semibold text-slate-800 shadow-sm" : "text-slate-500"}`}>{t}</button>
-                ))}
-              </div>
-              <button onClick={() => blob(`/portal/units/${selected.homeowner_id}/statement/export`, `statement_${selected.account_number}.xlsx`)}
-                className="text-xs text-brand-600 hover:underline">Statement ⬇</button>
-            </div>
+        {dash && (
+          <StatGrid>
+            <StatCard
+              label="Balance owing"
+              value={money(dash.total_balance, 0)}
+              tone={dash.total_balance > 0 ? "danger" : "success"}
+              hint={dash.total_balance > 0 ? "Payment overdue" : "You are up to date"}
+              icon={Wallet}
+            />
+            <StatCard
+              label="Next payment"
+              value={money(dash.next_due_amount, 0)}
+              hint={`Due ${shortDate(dash.next_due_date)}`}
+              tone="primary"
+              icon={Receipt}
+            />
+            <StatCard
+              label={units.length === 1 ? "Your unit" : "Your units"}
+              value={units.map((u) => u.unit_number).join(", ") || "—"}
+              icon={Home}
+            />
+            <StatCard
+              label="Open requests"
+              value={dash.open_tickets}
+              hint="Reported by you"
+              icon={Ticket}
+            />
+          </StatGrid>
+        )}
 
+        {dash?.total_balance > 0 && (
+          <Card className="flex flex-wrap items-center justify-between gap-4 border-primary/30 bg-accent/40">
+            <div>
+              <p className="text-sm font-semibold">
+                {money(dash.total_balance)} is outstanding on your account
+              </p>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Pay by card or bank transfer. Payments post to your balance
+                immediately.
+              </p>
+            </div>
+            <Button
+              onClick={() =>
+                toast.success("Payment accepted", {
+                  description:
+                    "In the live product this opens the payment provider. Card details never touch this system.",
+                })
+              }
+            >
+              <CreditCard className="h-4 w-4" />
+              Pay now
+            </Button>
+          </Card>
+        )}
+
+        {/* --------------------------------------------------- unit picker */}
+        {units.length > 1 && (
+          <div>
+            <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              You hold {units.length} units — choose one
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {units.map((u) => (
+                <button
+                  key={u.homeowner_id}
+                  onClick={() => setSelected(u)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left transition-colors",
+                    selected?.homeowner_id === u.homeowner_id
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-card hover:bg-muted"
+                  )}
+                >
+                  <p className="text-sm font-semibold">Unit {u.unit_number}</p>
+                  <p className="text-2xs text-muted-foreground">
+                    {u.balance > 0 ? `${money(u.balance, 0)} owing` : "Up to date"}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ---------------------------------------------------------- tabs */}
+        <div>
+          <div className="flex flex-wrap gap-1 border-b">
+            {(
+              [
+                ["assessments", "Assessments"],
+                ["payments", "Payment history"],
+                ["documents", "Documents"],
+                ["requests", "My requests"],
+              ] as [Tab, string][]
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setTab(k)}
+                className={cn(
+                  "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                  tab === k
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="pt-4">
             {tab === "assessments" && (
-              <div className="space-y-4">
-                {[["Monthly assessments", monthly], ["Special assessments & fees", special]].map(([label, list]) => (
-                  <div key={label as string}>
-                    <div className="mb-1 text-xs font-semibold uppercase text-slate-400">{label as string}</div>
-                    <table className="w-full text-left text-sm">
-                      <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                        <th className="py-1 pr-2">Invoice</th><th className="py-1 pr-2">Due</th>
-                        <th className="py-1 pr-2 text-right">Balance</th><th className="py-1 pr-2 text-right">Pay</th></tr></thead>
-                      <tbody>
-                        {(list as PortalInvoice[]).map((i) => (
-                          <tr key={i.id} className="border-b border-slate-100">
-                            <td className="py-1 pr-2 font-mono text-xs">{i.invoice_number}</td>
-                            <td className="py-1 pr-2">{i.due_date || "—"}</td>
-                            <td className="py-1 pr-2 text-right">${Number(i.balance).toFixed(2)}</td>
-                            <td className="py-1 pr-2 text-right">
-                              {Number(i.balance) > 0 ? (
-                                <button onClick={() => pay(i)} disabled={busy === i.id} className="rounded bg-brand-600 px-3 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50">{busy === i.id ? "…" : "Pay"}</button>
-                              ) : <span className="text-xs text-emerald-600">{i.status}</span>}
-                            </td>
-                          </tr>
-                        ))}
-                        {(list as PortalInvoice[]).length === 0 && <tr><td colSpan={4} className="py-2 text-slate-400">None.</td></tr>}
-                      </tbody>
-                    </table>
-                  </div>
-                ))}
-                <p className="text-xs text-slate-400">Payments are processed via a tokenized method (no card number is stored).</p>
-              </div>
+              <PortalTable
+                head={["Period", "Description", "Amount", "Paid", "Status"]}
+                rows={rows.map((r) => [
+                  r.period,
+                  r.description,
+                  money(r.amount),
+                  money(r.paid_amount),
+                  <StatusBadge key={r.id} status={r.status === "DUE" ? "PENDING" : "PAID"} />,
+                ])}
+                empty="No assessments raised yet."
+              />
             )}
 
             {tab === "payments" && (
-              <table className="w-full text-left text-sm">
-                <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                  <th className="py-1 pr-2">Receipt</th><th className="py-1 pr-2">Date</th>
-                  <th className="py-1 pr-2">Method</th><th className="py-1 pr-2 text-right">Amount</th></tr></thead>
-                <tbody>
-                  {receipts.map((r) => (
-                    <tr key={r.receipt_number} className="border-b border-slate-100">
-                      <td className="py-1 pr-2 font-mono text-xs">{r.receipt_number}</td>
-                      <td className="py-1 pr-2">{r.receipt_date}</td>
-                      <td className="py-1 pr-2">{r.payment_method}</td>
-                      <td className="py-1 pr-2 text-right">${Number(r.amount).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                  {receipts.length === 0 && <tr><td colSpan={4} className="py-2 text-slate-400">No payments yet.</td></tr>}
-                </tbody>
-              </table>
+              <PortalTable
+                head={["Receipt", "Paid on", "Method", "Amount"]}
+                rows={rows.map((r) => [
+                  r.receipt_number,
+                  shortDate(r.paid_on),
+                  r.method,
+                  money(r.amount),
+                ])}
+                empty="No payments recorded yet."
+              />
             )}
 
             {tab === "documents" && (
-              <table className="w-full text-left text-sm">
-                <thead><tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-                  <th className="py-1 pr-2">Document</th><th className="py-1 pr-2">Type</th>
-                  <th className="py-1 pr-2">Date</th><th className="py-1 pr-2 text-right">Get</th></tr></thead>
-                <tbody>
-                  {docs.map((d) => (
-                    <tr key={d.id} className="border-b border-slate-100">
-                      <td className="py-1 pr-2">{d.filename}</td>
-                      <td className="py-1 pr-2 text-xs text-slate-500">{d.entity_type}</td>
-                      <td className="py-1 pr-2 text-xs">{new Date(d.created_at).toLocaleDateString()}</td>
-                      <td className="py-1 pr-2 text-right">
-                        <button onClick={() => blob(`/portal/documents/${d.id}/download`, d.filename)} className="text-xs text-brand-600 hover:underline">Download</button>
-                      </td>
-                    </tr>
-                  ))}
-                  {docs.length === 0 && <tr><td colSpan={4} className="py-2 text-slate-400">No documents.</td></tr>}
-                </tbody>
-              </table>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {rows.length === 0 && (
+                  <div className="sm:col-span-2 lg:col-span-3">
+                    <EmptyState icon={FileText} title="No documents shared with you yet" />
+                  </div>
+                )}
+                {rows.map((d) => (
+                  <Card key={d.id} padded={false} className="flex flex-col">
+                    <div className="flex flex-1 items-start gap-3 p-4">
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 text-sm font-medium leading-snug">
+                          {d.filename}
+                        </p>
+                        <p className="mt-1 text-2xs text-muted-foreground">
+                          {(d.size_bytes / 1024).toFixed(0)} KB ·{" "}
+                          {relTime(d.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => toast.success(`Downloading ${d.filename}`)}
+                      className="flex items-center justify-center gap-1.5 border-t px-4 py-2 text-xs font-medium text-primary hover:bg-muted/50"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </button>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {tab === "requests" && (
+              <div className="space-y-3">
+                <div className="flex justify-end">
+                  <Button onClick={() => setAsking(true)}>
+                    <MessageSquarePlus className="h-4 w-4" />
+                    Report something
+                  </Button>
+                </div>
+                {tickets.length === 0 ? (
+                  <EmptyState
+                    icon={Ticket}
+                    title="You have not reported anything"
+                    description="Report a maintenance problem, a complaint or a request and the management office picks it up."
+                    action={
+                      <Button onClick={() => setAsking(true)}>
+                        <MessageSquarePlus className="h-4 w-4" />
+                        Report something
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    {tickets.map((t) => (
+                      <Card key={t.id} className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{t.subject}</p>
+                          <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
+                            {t.ticket_number} · reported {relTime(t.created_at)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <StatusBadge status={t.priority} />
+                          <StatusBadge status={t.status} />
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
+
+        <Card className="border-primary/25 bg-accent/40">
+          <p className="text-sm font-semibold">What you cannot see here</p>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Any other unit, any other resident, the community's overall finances,
+            vendor contracts, or anything in the staff application. Your account
+            is scoped to the units you hold, and the system enforces that in the
+            database itself — not just on screen.
+          </p>
+        </Card>
       </main>
+
+      {asking && (
+        <ReportModal
+          onClose={() => setAsking(false)}
+          onSubmit={async (body) => {
+            await call("/portal/tickets", { method: "POST", body });
+            setAsking(false);
+            setRev((r) => r + 1);
+            setTab("requests");
+            toast.success("Request submitted", {
+              description:
+                "The management office has been notified. You can follow its progress here.",
+            });
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ table */
+
+function PortalTable({
+  head,
+  rows,
+  empty,
+}: {
+  head: string[];
+  rows: React.ReactNode[][];
+  empty: string;
+}) {
+  if (rows.length === 0) return <EmptyState icon={Receipt} title={empty} />;
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="overflow-x-auto scroll-thin">
+        <table className="w-full min-w-[520px] text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50">
+              {head.map((h, i) => (
+                <th
+                  key={h}
+                  className={cn(
+                    "px-4 py-2.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground",
+                    i === 0 ? "text-left" : i >= 2 ? "text-right" : "text-left"
+                  )}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-b last:border-0">
+                {r.map((c, j) => (
+                  <td
+                    key={j}
+                    className={cn(
+                      "px-4 py-3",
+                      j === 0 ? "font-medium" : j >= 2 ? "tabular text-right" : ""
+                    )}
+                  >
+                    {c}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ report modal */
+
+function ReportModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (b: any) => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    subject: "",
+    description: "",
+    category: "MAINTENANCE",
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Report something"
+      description="This goes straight to the management office and appears on their service desk."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!form.subject.trim() || busy}
+            onClick={async () => {
+              setBusy(true);
+              await onSubmit(form);
+              setBusy(false);
+            }}
+          >
+            {busy ? "Sending…" : "Submit"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="c">What kind of thing is it?</Label>
+          <Select
+            id="c"
+            value={form.category}
+            onChange={(e) => set("category", e.target.value)}
+          >
+            <option value="MAINTENANCE">Something is broken</option>
+            <option value="COMPLAINT">A complaint</option>
+            <option value="REQUEST">A request</option>
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="s">Summary</Label>
+          <Input
+            id="s"
+            value={form.subject}
+            onChange={(e) => set("subject", e.target.value)}
+            placeholder="e.g. Hallway light out on my floor"
+            autoFocus
+          />
+        </div>
+        <div>
+          <Label htmlFor="d">Tell us more</Label>
+          <Textarea
+            id="d"
+            value={form.description}
+            onChange={(e) => set("description", e.target.value)}
+            placeholder="Where is it, and when did you first notice it?"
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }

@@ -1,347 +1,510 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import {
+  Ban, CheckCircle2, CircleDollarSign, FileText, Link2, Lock, Plus, Send,
+  TriangleAlert, Unlock,
+} from "lucide-react";
 import { useAuth } from "../../providers";
-import { apiFetch, downloadFile } from "@/lib/api";
-import type { ApInvoice, CodeCombination, DistributionSet, PoDetail, PoLine, PurchaseOrder, Structure, Vendor } from "@/lib/types";
-import { Alert, Button, Card, Input, Label, Modal, Select, Spinner } from "@/components/ui";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Play, Pause, XCircle, CheckCircle, Download, Check } from "lucide-react";
-
-const TONE: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  DRAFT: "outline", SUBMITTED: "secondary", APPROVED: "default", ACCOUNTED: "default", REJECTED: "destructive", PAID: "default",
-};
-const MATCH_TONE: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  NOT_MATCHED: "outline", MATCHED: "default", MATCH_EXCEPTION: "destructive",
-};
+import { useApi, useMutate } from "@/lib/use-api";
+import { Alert, Badge, Button, Card, Input, Label, Modal, Select, Textarea } from "@/components/ui";
+import {
+  Column, DataTable, DetailSheet, EmptyState, Facts, FilterChips, PageHeader,
+  PageShell, SectionGuide, StatCard, StatGrid, StatusBadge, Toolbar, money,
+  shortDate,
+} from "@/components/app/kit";
 
 export default function PayablesPage() {
-  const { token, activeTenantId } = useAuth();
-  const [invoices, setInvoices] = useState<ApInvoice[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [pos, setPos] = useState<PurchaseOrder[]>([]);
-  const [combos, setCombos] = useState<CodeCombination[]>([]);
-  const [distSets, setDistSets] = useState<DistributionSet[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    vendor_id: "", invoice_number: "", invoice_date: "2026-02-10", gl_date: "2026-02-15",
-    po_header_id: "", po_line_id: "", amount: "", tax_amount: "", code_combination_id: "", distribution_set_id: "",
-  });
-  const [poLines, setPoLines] = useState<PoLine[]>([]);
-  const [reg, setReg] = useState({ start: "2026-01-01", end: "2026-12-31" });
+  const { can, persona } = useAuth();
+  const { data: payables } = useApi<any[]>("/payables", []);
+  const { data: vendors } = useApi<any[]>("/vendors", []);
+  const { data: pos } = useApi<any[]>("/purchasing", []);
+  const { mutate } = useMutate();
 
-  async function onSelectPo(po_header_id: string) {
-    setForm((f) => ({ ...f, po_header_id, po_line_id: "" }));
-    setPoLines([]);
-    if (!po_header_id) return;
-    try {
-      const detail = await apiFetch<PoDetail>(`/purchasing/${po_header_id}`, { token, tenantId: activeTenantId });
-      setPoLines(detail.lines);
-    } catch { /* ignore */ }
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("ALL");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [holding, setHolding] = useState(false);
+  const [holdReason, setHoldReason] = useState("");
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const inv = payables.find((p) => p.id === selected) ?? null;
+  const linkedPo = pos.find((p) => p.id === inv?.po_header_id) ?? null;
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return payables.filter((p) => {
+      if (status === "HELD" && !p.on_hold) return false;
+      if (status !== "ALL" && status !== "HELD" && p.status !== status) return false;
+      return (
+        !q ||
+        p.invoice_number.toLowerCase().includes(q) ||
+        p.vendor_name.toLowerCase().includes(q)
+      );
+    });
+  }, [payables, status, search]);
+
+  const held = payables.filter((p) => p.on_hold);
+  const unpaid = payables.filter((p) => p.status !== "PAID" && p.status !== "CANCELLED");
+  const owed = unpaid.reduce((s, p) => s + p.amount + p.tax_amount, 0);
+  const exceptions = payables.filter((p) => p.match_status === "MATCH_EXCEPTION");
+
+  function say(m: string) {
+    setFlash(m);
+    setTimeout(() => setFlash(null), 5000);
   }
 
-  async function load() {
-    if (!token || !activeTenantId) return;
-    setLoading(true);
-    try {
-      const [inv, v, p, structures] = await Promise.all([
-        apiFetch<ApInvoice[]>("/payables", { token, tenantId: activeTenantId }),
-        apiFetch<Vendor[]>("/vendors", { token, tenantId: activeTenantId }),
-        apiFetch<PurchaseOrder[]>("/purchasing", { token, tenantId: activeTenantId }),
-        apiFetch<Structure[]>("/coa/structures", { token, tenantId: activeTenantId }),
-      ]);
-      setInvoices(inv);
-      setVendors(v);
-      setPos(p.filter((x) => ["APPROVED", "PARTIALLY_BILLED"].includes(x.status)));
-      if (structures[0]) {
-        setCombos(await apiFetch<CodeCombination[]>(
-          `/coa/structures/${structures[0].id}/combinations`,
-          { token, tenantId: activeTenantId }
-        ));
-      }
-      setDistSets(await apiFetch<DistributionSet[]>("/ap-config/distribution-sets",
-        { token, tenantId: activeTenantId }).catch(() => []));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activeTenantId]);
-
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy("create");
-    setError(null);
-    try {
-      await apiFetch("/payables", {
-        method: "POST", token, tenantId: activeTenantId,
-        body: {
-          vendor_id: form.vendor_id, invoice_number: form.invoice_number,
-          invoice_date: form.invoice_date, gl_date: form.gl_date,
-          po_header_id: form.po_header_id || undefined,
-          tax_amount: form.tax_amount || "0",
-          lines: [
-            // Matched to a PO line with no override → inherit the PO distributions.
-            form.po_line_id && !form.distribution_set_id && !form.code_combination_id
-              ? { amount: form.amount, po_line_id: form.po_line_id }
-              : form.distribution_set_id
-              ? { amount: form.amount, distribution_set_id: form.distribution_set_id, po_line_id: form.po_line_id || undefined }
-              : { amount: form.amount, po_line_id: form.po_line_id || undefined,
-                  distributions: [{ code_combination_id: form.code_combination_id, amount: form.amount }] },
-          ],
-        },
-      });
-      setOpen(false);
-      setForm({ vendor_id: "", invoice_number: "", invoice_date: "2026-02-10",
-                gl_date: "2026-02-15", po_header_id: "", po_line_id: "", amount: "", tax_amount: "",
-                code_combination_id: "", distribution_set_id: "" });
-      setPoLines([]);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create invoice");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function submit(id: string) {
-    setBusy(id);
-    setError(null);
-    try {
-      await apiFetch(`/payables/${id}/submit`, { method: "POST", token, tenantId: activeTenantId });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Submit failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function cancelInvoice(id: string) {
-    if (!window.confirm("Cancel this invoice? Any PO billing will be reversed.")) return;
-    setBusy(id); setError(null);
-    try {
-      await apiFetch(`/payables/${id}/cancel`, { method: "POST", token, tenantId: activeTenantId });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Cancel failed");
-    } finally { setBusy(null); }
-  }
-
-  async function hold(id: string) {
-    const reason = window.prompt("Reason for hold?");
-    if (!reason) return;
-    setBusy(id); setError(null);
-    try {
-      await apiFetch(`/payables/${id}/hold`, { method: "POST", token, tenantId: activeTenantId, body: { reason } });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Hold failed");
-    } finally { setBusy(null); }
-  }
-
-  async function releaseHold(id: string) {
-    setBusy(id); setError(null);
-    try {
-      await apiFetch(`/payables/${id}/release-hold`, { method: "POST", token, tenantId: activeTenantId });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Release failed");
-    } finally { setBusy(null); }
-  }
+  const columns: Column<any>[] = [
+    {
+      key: "inv",
+      header: "Invoice",
+      render: (p) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{p.invoice_number}</p>
+          <p className="truncate text-2xs text-muted-foreground">{p.vendor_name}</p>
+        </div>
+      ),
+    },
+    {
+      key: "po",
+      header: "Order",
+      render: (p) =>
+        p.po_number ? (
+          <span className="inline-flex items-center gap-1 font-mono text-2xs text-primary">
+            <Link2 className="h-3 w-3" />
+            {p.po_number}
+          </span>
+        ) : (
+          <span className="text-2xs text-muted-foreground">No order</span>
+        ),
+    },
+    { key: "match", header: "Match", render: (p) => <StatusBadge status={p.match_status} /> },
+    {
+      key: "fund",
+      header: "Fund",
+      render: (p) => (
+        <Badge tone={p.fund === "Reserve" ? "brass" : "primary"}>{p.fund}</Badge>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      numeric: true,
+      render: (p) => (
+        <span className="text-sm font-semibold">{money(p.amount + p.tax_amount)}</span>
+      ),
+    },
+    {
+      key: "due",
+      header: "Due",
+      render: (p) => (
+        <span className="text-xs text-muted-foreground">{shortDate(p.due_date)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (p) => (
+        <div className="flex flex-wrap items-center gap-1">
+          <StatusBadge status={p.status} />
+          {p.on_hold && <Badge tone="danger">On hold</Badge>}
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
+    <PageShell>
+      <PageHeader
+        eyebrow="Accounts Payable"
+        title="Payables"
+        description="Bills received from vendors — checked against what was ordered and what was delivered before a cent leaves the community's account."
+        actions={
+          can("ap.manage") && (
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              Enter invoice
+            </Button>
+          )
+        }
+      />
+
+      <SectionGuide
+        what="Where vendor bills are recorded and controlled. An invoice arrives, is entered against the purchase order it relates to, and must agree with that order and the record of delivery before it can be paid."
+        who="Accountants enter invoices; property managers and the board approve them. The person who enters a bill is deliberately not the person who authorises paying it."
+        how={[
+          "The invoice is entered and coded to a fund and an account.",
+          "If it references a purchase order, the system compares the three documents — order, delivery record, invoice. This is the three-way match.",
+          "Inside the community's tolerance it matches automatically. Outside it, the invoice is flagged and put on hold.",
+          "A held invoice cannot be paid until a person releases it and records why.",
+          "The invoice is submitted for approval, and the amount decides how many people must sign.",
+          "Once approved it is paid, the money is drawn from a bank account, and the expense posts to the ledger.",
+        ]}
+        flow="Receives from Purchasing and Receiving. Sends to Payments, then to the General Ledger. The link back is real — paying an invoice updates the amount billed on its purchase order."
+      />
+
+      {flash && <Alert kind="success">{flash}</Alert>}
+
+      <StatGrid>
+        <StatCard label="Owed to vendors" value={money(owed, 0)} hint={`${unpaid.length} unpaid`} tone="brass" icon={CircleDollarSign} />
+        <StatCard
+          label="On hold"
+          value={held.length}
+          tone={held.length ? "danger" : "success"}
+          hint={held.length ? "Blocked from payment" : "Nothing blocked"}
+          icon={Lock}
+        />
+        <StatCard
+          label="Match exceptions"
+          value={exceptions.length}
+          tone={exceptions.length ? "warning" : "success"}
+          hint="Disagree with the order"
+          icon={TriangleAlert}
+        />
+        <StatCard label="Paid this period" value={payables.filter((p) => p.status === "PAID").length} tone="success" icon={CheckCircle2} />
+      </StatGrid>
+
+      <Toolbar
+        search={search}
+        onSearch={setSearch}
+        placeholder="Search by invoice number or vendor…"
+        filters={
+          <FilterChips
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "ALL", label: "All", count: payables.length },
+              { value: "DRAFT", label: "Draft", count: payables.filter((p) => p.status === "DRAFT").length },
+              { value: "PENDING", label: "Awaiting approval", count: payables.filter((p) => p.status === "PENDING").length },
+              { value: "APPROVED", label: "Approved", count: payables.filter((p) => p.status === "APPROVED").length },
+              { value: "PAID", label: "Paid", count: payables.filter((p) => p.status === "PAID").length },
+              { value: "HELD", label: "On hold", count: held.length },
+            ]}
+          />
+        }
+      />
+
+      <DataTable
+        rows={filtered}
+        columns={columns}
+        onRowClick={(p) => setSelected(p.id)}
+        empty={<EmptyState icon={FileText} title="No invoices match" />}
+      />
+
+      {inv && (
+        <DetailSheet
+          open
+          onClose={() => {
+            setSelected(null);
+            setHolding(false);
+          }}
+          title={inv.invoice_number}
+          subtitle={`${inv.vendor_name} · ${shortDate(inv.invoice_date)}`}
+          badge={
+            <div className="flex gap-1.5">
+              <StatusBadge status={inv.status} />
+              {inv.on_hold && <Badge tone="danger">On hold</Badge>}
+            </div>
+          }
+          width="xl"
+          footer={
+            <>
+              {inv.on_hold && can("ap.manage") && (
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    await mutate(`/payables/${inv.id}/release-hold`, "POST");
+                    say(`${inv.invoice_number} released — it can now be approved.`);
+                  }}
+                >
+                  <Unlock className="h-4 w-4" />
+                  Release hold
+                </Button>
+              )}
+              {!inv.on_hold && inv.status !== "PAID" && can("ap.manage") && (
+                <Button variant="secondary" onClick={() => setHolding((h) => !h)}>
+                  <Lock className="h-4 w-4" />
+                  Place on hold
+                </Button>
+              )}
+              {inv.status === "DRAFT" && can("ap.manage") && (
+                <Button
+                  onClick={async () => {
+                    await mutate(`/payables/${inv.id}/submit`, "POST", {
+                      actor: persona?.full_name,
+                    });
+                    say(`${inv.invoice_number} submitted — now on the Approvals screen.`);
+                  }}
+                >
+                  <Send className="h-4 w-4" />
+                  Submit for approval
+                </Button>
+              )}
+              {inv.status === "APPROVED" && can("ap.pay") && (
+                <Button
+                  onClick={async () => {
+                    await mutate(`/payables/${inv.id}/pay`, "POST");
+                    say(`Payment issued for ${inv.invoice_number}. See the Payments screen.`);
+                  }}
+                >
+                  Pay now
+                </Button>
+              )}
+            </>
+          }
+        >
+          <div className="space-y-6">
+            {inv.on_hold && (
+              <Alert kind="error" title="This invoice is on hold">
+                {inv.hold_reason}. No payment can be issued until it is released
+                by someone with payables access.
+              </Alert>
+            )}
+
+            {holding && (
+              <Card className="border-warning/40 bg-warning/5">
+                <Label htmlFor="hr">Why is this being held?</Label>
+                <Textarea
+                  id="hr"
+                  value={holdReason}
+                  onChange={(e) => setHoldReason(e.target.value)}
+                  placeholder="e.g. Quantity billed exceeds the delivery record"
+                />
+                <div className="mt-2 flex justify-end gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setHolding(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!holdReason.trim()}
+                    onClick={async () => {
+                      await mutate(`/payables/${inv.id}/hold`, "POST", {
+                        reason: holdReason.trim(),
+                      });
+                      setHolding(false);
+                      setHoldReason("");
+                      say("Invoice placed on hold and the inbox notified.");
+                    }}
+                  >
+                    Confirm hold
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            <Facts
+              items={[
+                { label: "Vendor", value: inv.vendor_name },
+                { label: "Invoice date", value: shortDate(inv.invoice_date) },
+                { label: "Due date", value: shortDate(inv.due_date) },
+                { label: "Fund", value: <Badge tone={inv.fund === "Reserve" ? "brass" : "primary"}>{inv.fund}</Badge> },
+                { label: "Account code", value: <span className="font-mono text-xs">{inv.account}</span> },
+                { label: "Description", value: inv.description || "—" },
+              ]}
+            />
+
+            <div className="overflow-hidden rounded-lg border">
+              <div className="flex items-center justify-between bg-muted/50 px-4 py-2">
+                <span className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Amount
+                </span>
+              </div>
+              <div className="divide-y">
+                <Line label="Net" value={money(inv.amount)} />
+                <Line label="Tax" value={money(inv.tax_amount)} />
+                <Line label="Total payable" value={money(inv.amount + inv.tax_amount)} bold />
+              </div>
+            </div>
+
+            {/* three-way match */}
+            <div>
+              <p className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Three-way match
+              </p>
+              {linkedPo ? (
+                <div className="grid grid-cols-3 gap-2">
+                  <MatchCard
+                    label="Ordered"
+                    value={money(linkedPo.amount, 0)}
+                    sub={linkedPo.po_number}
+                    ok
+                  />
+                  <MatchCard
+                    label="Received"
+                    value="Confirmed"
+                    sub="Accepted on site"
+                    ok
+                  />
+                  <MatchCard
+                    label="Invoiced"
+                    value={money(inv.amount, 0)}
+                    sub={inv.invoice_number}
+                    ok={inv.match_status === "MATCHED"}
+                  />
+                </div>
+              ) : (
+                <Card className="border-dashed">
+                  <p className="text-sm text-muted-foreground">
+                    This invoice has no purchase order behind it, so there is
+                    nothing to match against. Communities usually require an
+                    order above a threshold amount for exactly this reason.
+                  </p>
+                </Card>
+              )}
+              {inv.match_status === "MATCH_EXCEPTION" && (
+                <p className="mt-2 text-xs text-destructive">
+                  The invoice disagrees with the order by more than the agreed
+                  tolerance, so it was flagged automatically and held.
+                </p>
+              )}
+            </div>
+          </div>
+        </DetailSheet>
+      )}
+
+      {creating && (
+        <NewInvoiceModal
+          vendors={vendors}
+          pos={pos}
+          onClose={() => setCreating(false)}
+          onCreate={async (b) => {
+            const created: any = await mutate("/payables", "POST", b);
+            setCreating(false);
+            say(`Invoice ${created.invoice_number} entered as a draft.`);
+            setSelected(created.id);
+          }}
+        />
+      )}
+    </PageShell>
+  );
+}
+
+function Line({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2">
+      <span className={bold ? "text-sm font-semibold" : "text-sm text-muted-foreground"}>
+        {label}
+      </span>
+      <span className={"tabular " + (bold ? "text-sm font-semibold" : "text-sm")}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function MatchCard({ label, value, sub, ok }: { label: string; value: string; sub: string; ok: boolean }) {
+  return (
+    <div
+      className={
+        "rounded-lg border p-3 " +
+        (ok ? "border-success/40 bg-success/8" : "border-destructive/40 bg-destructive/8")
+      }
+    >
+      <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <p className={"tabular mt-1 text-sm font-semibold " + (ok ? "text-success" : "text-destructive")}>
+        {value}
+      </p>
+      <p className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">{sub}</p>
+    </div>
+  );
+}
+
+function NewInvoiceModal({
+  vendors, pos, onClose, onCreate,
+}: {
+  vendors: any[];
+  pos: any[];
+  onClose: () => void;
+  onCreate: (b: any) => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    vendor_id: vendors[0]?.id ?? "",
+    po_header_id: "",
+    invoice_number: "",
+    amount: "",
+    description: "",
+    fund: "Operating",
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const vendorPos = pos.filter(
+    (p) => p.vendor_id === form.vendor_id && p.status === "APPROVED"
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Enter a vendor invoice"
+      description="Linking an invoice to a purchase order lets the system match it automatically."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={!form.invoice_number.trim() || !form.amount || busy}
+            onClick={async () => {
+              setBusy(true);
+              await onCreate({ ...form, amount: Number(form.amount) });
+              setBusy(false);
+            }}
+          >
+            {busy ? "Saving…" : "Save as draft"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="v">Vendor</Label>
+            <Select id="v" value={form.vendor_id} onChange={(e) => { set("vendor_id", e.target.value); set("po_header_id", ""); }}>
+              {vendors.filter((v) => v.status === "ACTIVE").map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="n">Invoice number</Label>
+            <Input id="n" value={form.invoice_number} onChange={(e) => set("invoice_number", e.target.value)} placeholder="INV-2026-0412" autoFocus />
+          </div>
+        </div>
         <div>
-          <h1 className="text-xl font-bold text-slate-800">Payables — AP Invoices</h1>
-          <p className="text-sm text-slate-500">
-            Invoice entry with PO matching; approval generates a draft GL batch.
+          <Label htmlFor="po">Against a purchase order</Label>
+          <Select id="po" value={form.po_header_id} onChange={(e) => set("po_header_id", e.target.value)}>
+            <option value="">No order — enter directly</option>
+            {vendorPos.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.po_number} — {p.description} ({money(p.amount, 0)})
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            {form.po_header_id
+              ? "This invoice will be matched against the order and its delivery record."
+              : "Without an order there is nothing to match against, so no automatic check happens."}
           </p>
         </div>
-        <Button onClick={() => setOpen(true)}>+ New Invoice</Button>
-      </div>
-      {error && <Alert kind="error">{error}</Alert>}
-      <Card className="shadow-sm border-slate-200 rounded-xl overflow-hidden p-5">
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Reports</span>
-          <Input value={reg.start} onChange={(e) => setReg({ ...reg, start: e.target.value })} className="w-32" />
-          <Input value={reg.end} onChange={(e) => setReg({ ...reg, end: e.target.value })} className="w-32" />
-          <Button variant="secondary" className="text-slate-600 bg-white" onClick={() => downloadFile(`/payables/register/export?start=${reg.start}&end=${reg.end}`, token!, activeTenantId!, "ap_invoice_register.xlsx")}><Download className="h-4 w-4 mr-2" /> Invoice Register</Button>
-          <Button variant="secondary" className="text-slate-600 bg-white" onClick={() => downloadFile(`/payables/distributions/export?start=${reg.start}&end=${reg.end}`, token!, activeTenantId!, "ap_distributions.xlsx")}><Download className="h-4 w-4 mr-2" /> Distributions by Fund/Period</Button>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="a">Net amount ($)</Label>
+            <Input id="a" type="number" value={form.amount} onChange={(e) => set("amount", e.target.value)} placeholder="1250.00" />
+          </div>
+          <div>
+            <Label htmlFor="f">Fund</Label>
+            <Select id="f" value={form.fund} onChange={(e) => set("fund", e.target.value)}>
+              <option>Operating</option>
+              <option>Reserve</option>
+            </Select>
+          </div>
         </div>
-      </Card>
-      <Card className="shadow-sm border-slate-200 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          {loading ? (
-             <div className="flex justify-center p-12"><Spinner /></div>
-          ) : (
-            <Table>
-              <TableHeader className="bg-slate-50">
-                <TableRow>
-                  <TableHead className="font-semibold text-slate-600">Invoice #</TableHead>
-                  <TableHead className="font-semibold text-slate-600 text-right">Amount</TableHead>
-                  <TableHead className="font-semibold text-slate-600 text-right">Tax</TableHead>
-                  <TableHead className="font-semibold text-slate-600">Match</TableHead>
-                  <TableHead className="font-semibold text-slate-600">Status</TableHead>
-                  <TableHead className="font-semibold text-slate-600 text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invoices.map((inv) => (
-                  <TableRow key={inv.id} className="hover:bg-slate-50 transition-colors">
-                    <TableCell className="font-mono text-slate-800 font-medium">
-                      <div className="flex items-center gap-2">
-                        {inv.invoice_number}
-                        {inv.on_hold && <span title={inv.hold_reason || ""}><Badge variant="destructive">HOLD</Badge></span>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-medium text-slate-800">${Number(inv.amount).toFixed(2)}</TableCell>
-                    <TableCell className="text-right text-slate-500">${Number(inv.tax_amount || 0).toFixed(2)}</TableCell>
-                    <TableCell>
-                      <Badge variant={MATCH_TONE[inv.match_status] || "outline"}>{inv.match_status.replace("_", " ")}</Badge>
-                    </TableCell>
-                    <TableCell><Badge variant={TONE[inv.status] || "outline"}>{inv.status}</Badge></TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        {inv.status === "DRAFT" && !inv.on_hold && (
-                          <Button variant="ghost" className="h-8 w-8 p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => submit(inv.id)} disabled={busy === inv.id} title="Submit">
-                            <CheckCircle className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {!inv.on_hold && !["PAID", "CANCELLED"].includes(inv.status) && (
-                          <Button variant="ghost" className="h-8 w-8 p-1 text-amber-600 hover:text-amber-700 hover:bg-amber-50" onClick={() => hold(inv.id)} disabled={busy === inv.id} title="Hold">
-                            <Pause className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {inv.on_hold && (
-                          <Button variant="ghost" className="h-8 w-8 p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => releaseHold(inv.id)} disabled={busy === inv.id} title="Release Hold">
-                            <Play className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {!["PAID", "CANCELLED"].includes(inv.status) && (
-                          <Button variant="ghost" className="h-8 w-8 p-1 text-rose-600 hover:text-rose-700 hover:bg-rose-50" onClick={() => cancelInvoice(inv.id)} disabled={busy === inv.id} title="Cancel">
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {invoices.length === 0 && (
-                  <TableRow>
-                     <TableCell colSpan={6} className="h-32 text-center text-slate-500 font-medium">
-                        No invoices found.
-                     </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </div>    </Card>
-
-      <Modal open={open} onClose={() => setOpen(false)} title="New AP Invoice">
-        <form onSubmit={create} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Vendor</Label>
-              <Select value={form.vendor_id} onChange={(e) => setForm({ ...form, vendor_id: e.target.value })} required>
-                <option value="">Select vendor…</option>
-                {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </Select>
-            </div>
-            <div><Label>Invoice #</Label><Input value={form.invoice_number}
-              onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} required /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>Invoice date</Label><Input type="date" value={form.invoice_date}
-              onChange={(e) => setForm({ ...form, invoice_date: e.target.value })} required /></div>
-            <div><Label>GL date</Label><Input type="date" value={form.gl_date}
-              onChange={(e) => setForm({ ...form, gl_date: e.target.value })} required /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Match to PO (optional)</Label>
-              <Select value={form.po_header_id} onChange={(e) => onSelectPo(e.target.value)}>
-                <option value="">No PO (unmatched)</option>
-                {pos.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.po_number} — rem ${(Number(p.amount_limit) - Number(p.billed_amount)).toFixed(2)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            {form.po_header_id && (
-              <div>
-                <Label>PO line (inherits distributions)</Label>
-                <Select value={form.po_line_id} onChange={(e) => setForm({ ...form, po_line_id: e.target.value })}>
-                  <option value="">Select line…</option>
-                  {poLines.map((l) => <option key={l.id} value={l.id}>#{l.line_num} {l.item_description}</option>)}
-                </Select>
-              </div>
-            )}
-          </div>
-          {form.po_header_id ? (
-            <p className="text-xs text-emerald-700">
-              Matched invoices within tolerance are fast-tracked (auto-approved). Pick a PO line to
-              inherit its accounting, or override with an account/distribution set below.
-            </p>
-          ) : (
-            <p className="text-xs text-amber-700">
-              Unmatched invoices require Board verification of the accounting distribution.
-            </p>
-          )}
-          <div className="grid grid-cols-3 gap-3">
-            <div><Label>Amount</Label><Input type="number" step="0.01" value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })} required /></div>
-            <div><Label>Tax</Label><Input type="number" step="0.01" value={form.tax_amount}
-              onChange={(e) => setForm({ ...form, tax_amount: e.target.value })} placeholder="0.00" /></div>
-            <div>
-              <Label>Distribution set (optional)</Label>
-              <Select value={form.distribution_set_id}
-                onChange={(e) => setForm({ ...form, distribution_set_id: e.target.value })}>
-                <option value="">— single account —</option>
-                {distSets.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.lines.length} lines)</option>)}
-              </Select>
-            </div>
-          </div>
-          {!form.distribution_set_id && !form.po_line_id && (
-            <div>
-              <Label>Account (KFF)</Label>
-              <Select value={form.code_combination_id}
-                onChange={(e) => setForm({ ...form, code_combination_id: e.target.value })}
-                required={!form.distribution_set_id && !form.po_line_id}>
-                <option value="">Select…</option>
-                {combos.map((c) => <option key={c.id} value={c.id}>{c.concatenated_segments}</option>)}
-              </Select>
-            </div>
-          )}
-          {form.po_line_id && !form.distribution_set_id && !form.code_combination_id && (
-            <p className="text-xs text-slate-500">Distributions will be inherited from the selected PO line.</p>
-          )}
-          {form.distribution_set_id && (
-            <p className="text-xs text-slate-500">
-              The amount will be split across this set's accounts by percentage.
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy === "create"}>
-              {busy === "create" ? "Creating…" : "Create Invoice"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+        <div>
+          <Label htmlFor="d">Description</Label>
+          <Input id="d" value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Quarterly landscaping service" />
+        </div>
+      </div>
+    </Modal>
   );
 }
