@@ -1,62 +1,80 @@
+/**
+ * Crash sweep for the demo build.
+ *
+ *   node test-all.js            # against a running dev server on :3000
+ *   BASE=http://localhost:3001 node test-all.js
+ *
+ * Signs in as the Super Administrator (sees every screen), visits each route
+ * and reports the Next.js error overlay plus any console/page errors.
+ */
 const { chromium } = require('playwright');
 
+const BASE = process.env.BASE || 'http://localhost:3000';
+
+// Every route, including the ones currently hidden from the sidebar.
 const routes = [
   '/dashboard', '/service-desk', '/residents', '/documents', '/notifications',
-  '/coa', '/value-sets', '/vendors', '/ap-setup', '/cash', '/budgets', '/fixed-assets',
-  '/purchasing', '/receiving', '/encumbrance', '/payables', '/payments',
-  '/ar-billing', '/collections', '/statements', '/dunning', '/receivables',
-  '/gl', '/periods', '/approvals', '/users', '/tenants', '/gateway',
-  '/scheduler', '/reports', '/board', '/migration', '/go-live'
+  '/vendors', '/payables', '/payments', '/purchasing', '/receiving',
+  '/encumbrance', '/ap-setup',
+  '/ar-billing', '/receivables', '/collections', '/statements', '/dunning',
+  '/coa', '/value-sets', '/budgets', '/gl', '/periods', '/cash',
+  '/fixed-assets', '/approvals',
+  '/users', '/tenants', '/gateway', '/scheduler', '/reports', '/board',
+  '/migration', '/go-live',
+  '/roles-and-flow', '/portal/login', '/login',
 ];
 
 (async () => {
-  console.log("Starting browser...");
   const browser = await chromium.launch();
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  console.log("Setting mock auth...");
-  await page.goto('http://localhost:3000/login');
-  
-  await page.evaluate(() => {
-    localStorage.setItem('ch_erp_token', 'mock_jwt_token_123');
-    localStorage.setItem('ch_erp_active_tenant', 'tenant-1');
-  });
+  // Session shape written by app/providers.tsx (LS_KEY / persona + tenant).
+  await page.goto(`${BASE}/login`);
+  await page.evaluate(() =>
+    localStorage.setItem(
+      'casa_demo_session_v1',
+      JSON.stringify({ personaId: 'user-1', tenantId: 'tenant-1' })
+    )
+  );
 
-  await page.goto('http://localhost:3000/dashboard', { waitUntil: 'networkidle' });
-  console.log("Logged in successfully.");
+  const failed = [];
 
-  const failedRoutes = [];
-  
   for (const route of routes) {
-    console.log(`Checking ${route}...`);
+    const problems = [];
+    const onConsole = (m) => m.type() === 'error' && problems.push(m.text());
+    const onError = (e) => problems.push(`pageerror: ${e.message}`);
+    page.on('console', onConsole);
+    page.on('pageerror', onError);
+
     try {
-      await page.goto(`http://localhost:3000${route}`, { waitUntil: 'networkidle', timeout: 15000 });
-      
-      // Check for Next.js error overlay text or React error text
-      const hasErrorText = await page.locator('text="This page couldn\'t load"').count() > 0;
-      const hasRuntimeError = await page.locator('text="Application error: a client-side exception has occurred"').count() > 0;
-      
-      if (hasErrorText || hasRuntimeError) {
-        console.error(`❌ Route ${route} CRASHED!`);
-        failedRoutes.push(route);
-      } else {
-        console.log(`✅ Route ${route} is OK.`);
-      }
+      await page.goto(`${BASE}${route}`, { waitUntil: 'networkidle', timeout: 20000 });
+      const overlay =
+        (await page.locator('text="This page couldn\'t load"').count()) > 0 ||
+        (await page.locator('text="Application error"').count()) > 0 ||
+        (await page.locator('text="Unhandled Runtime Error"').count()) > 0;
+      if (overlay) problems.push('error overlay rendered');
     } catch (e) {
-      console.error(`❌ Route ${route} FAILED TO LOAD: ${e.message}`);
-      failedRoutes.push(route);
+      problems.push(`navigation: ${e.message}`);
+    }
+
+    page.off('console', onConsole);
+    page.off('pageerror', onError);
+
+    if (problems.length) {
+      failed.push({ route, problems });
+      console.error(`FAIL ${route}\n      ${problems.join('\n      ')}`);
+    } else {
+      console.log(`ok   ${route}`);
     }
   }
 
   await browser.close();
-  
-  if (failedRoutes.length > 0) {
-    console.log("\\n--- REPORT ---");
-    console.log("The following pages failed/crashed:");
-    failedRoutes.forEach(r => console.log("- " + r));
-  } else {
-    console.log("\\n--- REPORT ---");
-    console.log("✅ ALL PAGES LOADED SUCCESSFULLY!");
+
+  console.log('\n--- REPORT ---');
+  if (failed.length) {
+    failed.forEach((f) => console.log(`- ${f.route}: ${f.problems[0]}`));
+    process.exit(1);
   }
+  console.log(`All ${routes.length} routes loaded clean.`);
 })();

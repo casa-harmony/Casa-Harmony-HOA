@@ -582,7 +582,14 @@ function route<T>(c: Ctx): T {
   /* --------------------------------------------------------- collections */
 
   if (p === "/collections/cases") return ok(d.delinquency);
-  if (p === "/collections/payment-plans") return ok(d.paymentPlans);
+  if (p === "/collections/payment-plans")
+    return ok(
+      d.paymentPlans.map((pl: any) => ({
+        ...pl,
+        total_amount: pl.total,
+        installments: pl.instalments,
+      }))
+    );
   if (p === "/collections/liens") return ok(d.liens);
 
   /* ------------------------------------------------------------ gateway */
@@ -1139,7 +1146,32 @@ function route<T>(c: Ctx): T {
 
   /* ------------------------------------------------------- collections */
 
-  if (p === "/collections/aging") return ok(d.aging);
+  /**
+   * Per-homeowner aging. `/subledger/aging` returns the summary object the
+   * dashboard and board charts use; this screen wants one row per delinquent
+   * owner, with the balance dropped into the bucket its age falls in.
+   */
+  if (p === "/collections/aging") {
+    const AGE_BUCKET = (days: number) =>
+      days <= 0 ? "Current" : days <= 30 ? "1-30" : days <= 60 ? "31-60" : days <= 90 ? "61-90" : "90+";
+    return ok(
+      d.delinquency.map((c: any) => {
+        const owner = d.homeowners.find((h: any) => h.id === c.homeowner_id);
+        const balance = Number(c.balance) || 0;
+        const buckets: Record<string, number> = {
+          Current: 0, "1-30": 0, "31-60": 0, "61-90": 0, "90+": 0,
+        };
+        buckets[AGE_BUCKET(Number(c.days_past_due) || 0)] = balance;
+        return {
+          homeowner_id: c.homeowner_id,
+          name: c.name,
+          account_number: owner?.account_number ?? c.unit,
+          buckets,
+          total: balance,
+        };
+      })
+    );
+  }
 
   /* ------------------------------------------------------------- fallback */
 
