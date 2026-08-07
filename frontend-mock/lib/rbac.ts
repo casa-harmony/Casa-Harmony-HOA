@@ -283,6 +283,14 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+/**
+ * Groups, order and labels mirror the real application's sidebar —
+ * frontend/app/(app)/layout.tsx. Keep the two in step: the demo is only
+ * honest if the menu matches what the client will actually be handed.
+ *
+ * The only addition is the Reference group, which points at the two screens
+ * that exist to explain the demo itself.
+ */
 export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Core Operations",
@@ -295,42 +303,47 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    title: "Financial Setup",
+    items: [
+      { href: "/coa", label: "Chart of Accounts", perm: "coa.read" },
+      { href: "/value-sets", label: "Value Sets", perm: "coa.valueset.manage" },
+      { href: "/vendors", label: "Vendors", perm: "vendor.manage", priority: true },
+      { href: "/ap-setup", label: "AP Setup", perm: "ap.config" },
+      { href: "/cash", label: "Cash & Bank Rec", perm: "cash.manage" },
+      { href: "/budgets", label: "Budgets", perm: "budget.manage" },
+      { href: "/fixed-assets", label: "Fixed Assets", perm: "fa.manage" },
+    ],
+  },
+  {
     title: "Accounts Payable",
     items: [
+      { href: "/purchasing", label: "Purchasing (PO)", perm: "po.manage" },
+      { href: "/receiving", label: "Receiving", perm: "po.receive" },
+      { href: "/encumbrance", label: "Encumbrances", perm: "po.manage" },
       { href: "/payables", label: "Payables (AP)", perm: "ap.manage", priority: true },
-      { href: "/payments", label: "Payments", perm: "ap.pay", priority: true },
-      { href: "/vendors", label: "Vendors", perm: "vendor.manage", disabled: true },
-      { href: "/purchasing", label: "Purchasing (PO)", perm: "po.manage", disabled: true },
-      { href: "/receiving", label: "Receiving", perm: "po.receive", disabled: true },
-      { href: "/encumbrance", label: "Encumbrances", perm: "po.manage", disabled: true },
-      { href: "/ap-setup", label: "AP Setup", perm: "ap.config", disabled: true },
+      { href: "/payments", label: "Payments (AP)", perm: "ap.pay", priority: true },
     ],
   },
   {
     title: "Accounts Receivable",
     items: [
       { href: "/ar-billing", label: "AR Billing", perm: "ar.manage" },
-      { href: "/receivables", label: "Receivables", perm: "ar.manage" },
       { href: "/collections", label: "Collections", perm: "collections.manage" },
-      { href: "/statements", label: "Statements", perm: "ar.manage" },
+      { href: "/statements", label: "AR Statements", perm: "ar.manage" },
       { href: "/dunning", label: "Dunning", perm: "collections.manage" },
+      { href: "/receivables", label: "Receivables (AR)", perm: "ar.manage" },
     ],
   },
   {
-    title: "Finance & Ledger",
+    title: "General Ledger",
     items: [
-      { href: "/coa", label: "Chart of Accounts", perm: "coa.read" },
-      { href: "/value-sets", label: "Value Sets", perm: "coa.valueset.manage" },
-      { href: "/budgets", label: "Budgets", perm: "budget.manage" },
       { href: "/gl", label: "General Ledger", perm: "gl.batch.manage" },
       { href: "/periods", label: "Period Close", perm: "gl.period.manage" },
-      { href: "/cash", label: "Cash & Bank Rec", perm: "cash.manage" },
-      { href: "/fixed-assets", label: "Fixed Assets", perm: "fa.manage" },
       { href: "/approvals", label: "Approvals", perm: "approval.config" },
     ],
   },
   {
-    title: "Administration",
+    title: "System Admin",
     items: [
       { href: "/users", label: "Users & Roles", perm: "user.manage", priority: true },
       { href: "/tenants", label: "HOAs (Tenants)", perm: "tenant.create", priority: true },
