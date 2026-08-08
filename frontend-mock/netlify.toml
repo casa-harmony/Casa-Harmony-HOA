@@ -1,0 +1,18 @@
+# Netlify build for the demo front end.
+#
+# Review mode adds API routes under /api/review, so this site needs the Next.js
+# runtime (serverless functions), not a static publish. The plugin below is what
+# provides that.
+#
+# Netlify reads this file from the site's base directory. If the site's base is
+# set to `frontend-mock` in the Netlify UI, this applies as written.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[build.environment]
+  NODE_VERSION = "20"

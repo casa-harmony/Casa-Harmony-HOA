@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "./providers";
 import { ThemeProvider, themeScript } from "@/components/theme";
 import { Toaster } from "@/components/ui/sonner";
+import { ReviewLayer } from "@/components/review";
 
 export const metadata: Metadata = {
   title: "Casa Harmony — Service Desk + ERP for HOAs",
@@ -24,6 +25,7 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>{children}</AuthProvider>
           <Toaster />
+          <ReviewLayer />
         </ThemeProvider>
       </body>
     </html>
