@@ -33,16 +33,18 @@ function diagnostics() {
     "CLOUDINARY_API_KEY",
     "CLOUDINARY_API_SECRET",
   ];
+  // Near-misses of the keys we want, and nothing else — a typo like
+  // DATABASE_UR should surface without echoing unrelated site config back.
+  const prefixes = ["REVIEW_", "DATABASE_", "CLOUDINARY_"];
+  const lookalikes = Object.keys(process.env).filter(
+    (k) => !wanted.includes(k) && prefixes.some((p) => k.startsWith(p))
+  );
+
   return {
     present: wanted.filter((k) => !!process.env[k]),
-    // Anything close but not exact — the misspelling case.
-    lookalikes: Object.keys(process.env).filter(
-      (k) => /REVIEW|DATABASE|CLOUDINARY|POSTGRES|NEON/i.test(k) && !wanted.includes(k)
-    ),
-    envKeyCount: Object.keys(process.env).length,
+    lookalikes,
     onNetlify: !!process.env.NETLIFY,
     context: process.env.CONTEXT ?? null,
-    commit: process.env.COMMIT_REF?.slice(0, 7) ?? null,
   };
 }
 
