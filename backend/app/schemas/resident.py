@@ -18,6 +18,10 @@ class ResidentCreate(BaseModel):
     mfa_channel: str = Field(default="EMAIL", pattern=r"^(EMAIL|SMS)$")
 
 
+class ResidentUpdate(BaseModel):
+    is_active: bool | None = None
+
+
 class ResidentOut(BaseModel):
     id: uuid.UUID
     username: str

@@ -15,6 +15,7 @@ from app.models.subledger import ArHomeowner
 from app.schemas.resident import (
     ResidentCreate,
     ResidentOut,
+    ResidentUpdate,
     ResidentUnitLink,
     ResidentUnitOut,
 )
@@ -78,6 +79,27 @@ def create_resident(
     db.flush()
     audit.record(db, action="CREATE", entity_type="Resident", entity_id=r.id,
                  after={"username": r.username, "type": r.resident_type})
+    return _out(db, r)
+
+
+@router.patch("/{resident_id}", response_model=ResidentOut)
+def update_resident(
+    resident_id: uuid.UUID,
+    payload: ResidentUpdate,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("resident.manage")),
+):
+    r = db.execute(
+        select(Resident).where(
+            Resident.id == resident_id, Resident.tenant_id == principal.tenant_id
+        )
+    ).scalar_one_or_none()
+    if not r:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Resident not found")
+    
+    if payload.is_active is not None:
+        r.is_active = payload.is_active
+    db.commit()
     return _out(db, r)
 
 
