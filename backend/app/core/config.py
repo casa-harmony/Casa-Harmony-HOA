@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     # Base URL of the frontend (used in password-reset links).
     FRONTEND_BASE_URL: str = "http://localhost:3000"
 
+    # Demo-only shortcut: POST /portal/pay books a receipt directly from the
+    # client's asserted amount, with no payment processor involved. That is fine
+    # for showing the app without a real gateway, but in production a resident
+    # payment must settle through /portal/pay/checkout + the gateway webhook, or
+    # anyone could clear their own balance for free. Off in production unless a
+    # deployment explicitly opts in.
+    ALLOW_DIRECT_PORTAL_PAYMENT: bool = True
+
     # --- Resident MFA (email/SMS one-time codes) ---
     OTP_TTL_MINUTES: int = 10
     OTP_MAX_ATTEMPTS: int = 5

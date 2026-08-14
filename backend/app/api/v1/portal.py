@@ -299,11 +299,34 @@ def pay(
     resident: Resident = Depends(get_current_resident),
     db: Session = Depends(get_db),
 ):
-    """Resident pays one of their invoices online (tokenized card — no PAN stored)."""
+    """Record a resident payment for one of their invoices.
+
+    This path books the receipt directly from the asserted amount with no
+    payment processor, so it is a DEMO shortcut only. In production a resident
+    payment must settle through ``/portal/pay/checkout`` and the gateway
+    webhook; otherwise a resident could clear their own balance without paying.
+    """
+    from app.core.config import settings
+
+    if not settings.ALLOW_DIRECT_PORTAL_PAYMENT or settings.is_production:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Direct payment is disabled. Use the hosted checkout to pay online.",
+        )
+
     inv = db.get(ArInvoice, payload.invoice_id)
     if inv is None or inv.tenant_id != resident.tenant_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
     _owned_unit(db, resident, inv.homeowner_id)  # resident must own the invoice's unit
+
+    # A draft invoice is not yet a payable receivable; refuse anything that is
+    # not open, and anything already settled.
+    if inv.status in ("DRAFT", "PAID", "VOID", "WRITTEN_OFF", "CANCELLED"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Invoice is not payable (status: {inv.status})"
+        )
+    if payload.amount is None or payload.amount <= 0:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Amount must be positive")
 
     seq = db.execute(
         select(func.count(ArReceipt.id)).where(ArReceipt.tenant_id == resident.tenant_id)

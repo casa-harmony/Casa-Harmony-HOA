@@ -147,17 +147,34 @@ def handle_webhook_raw(db: Session, tenant_id, *, raw_body: bytes, sig_header: s
         event_type, txn_ref = gp.parse_stripe_event(raw_body)
         return _dispatch_event(db, tenant_id, event_type, txn_ref)
     # MOCK: shared-secret check against the JSON body fields.
+    #
+    # The secret must be explicitly configured. Never fall back to a guessable
+    # constant like "mock" — with an unset secret that turned an unauthenticated
+    # endpoint into a free "mark this invoice paid" button. A MOCK gateway with
+    # no webhook secret cannot confirm payments; use a real provider (STRIPE)
+    # with a configured secret to accept live webhooks.
+    import hmac
+
+    if settings.is_production:
+        raise GatewayError("Mock gateway webhooks are disabled in production")
+    if not cfg.webhook_secret:
+        raise GatewayError("Webhook secret is not configured for this gateway")
+
     body = _json.loads(raw_body.decode("utf-8")) if raw_body else {}
-    expected = cfg.webhook_secret or "mock"
-    if (json_signature or body.get("signature")) != expected:
+    provided = json_signature or body.get("signature") or ""
+    if not hmac.compare_digest(str(provided), str(cfg.webhook_secret)):
         raise GatewayError("Invalid webhook signature")
     return _dispatch_event(db, tenant_id, body.get("event_type", ""), body.get("txn_ref"))
 
 
 def handle_webhook(db: Session, tenant_id, *, event_type: str, txn_ref: str, signature: str | None) -> dict:
+    import hmac
+
     cfg = get_config(db, tenant_id)
-    expected = cfg.webhook_secret or "mock"
-    if signature != expected:
+    # Never default the secret to a guessable constant — see handle_webhook_raw.
+    if not cfg.webhook_secret:
+        raise GatewayError("Webhook secret is not configured for this gateway")
+    if not signature or not hmac.compare_digest(str(signature), str(cfg.webhook_secret)):
         raise GatewayError("Invalid webhook signature")
     if event_type in ("payment_intent.succeeded", "checkout.session.completed", "payment_succeeded"):
         txn = confirm_payment(db, tenant_id, txn_ref)
