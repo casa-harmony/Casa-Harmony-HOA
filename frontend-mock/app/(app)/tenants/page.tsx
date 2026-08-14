@@ -5,28 +5,74 @@ import {
   Building2, CheckCircle2, Home, MapPin, Plus, ShieldCheck, Users, Wallet,
 } from "lucide-react";
 import { useAuth } from "../../providers";
-import { useApi } from "@/lib/use-api";
+import { useApi, useMutate } from "@/lib/use-api";
 import { TENANTS } from "@/lib/mock-data/seed";
 import { Alert, Badge, Button, Card, Input, Label, Modal, Select } from "@/components/ui";
 import {
-  DetailSheet, Facts, PageHeader, PageShell, SectionGuide, StatCard, StatGrid,
+  DetailSheet, EmptyState, Facts, PageHeader, PageShell, SectionGuide, StatCard, StatGrid,
   StatusBadge, money,
 } from "@/components/app/kit";
 
 export default function TenantsPage() {
-  const { activeTenantId, setActiveTenant, can } = useAuth();
+  const { activeTenantId, setActiveTenant, can, refresh } = useAuth();
   const [showDemo, setShowDemo] = useState(false);
   const { data: tenants } = useApi<any[]>(
     showDemo ? "/tenants?include_demo=true" : "/tenants",
     []
   );
+  const { mutate, busy } = useMutate();
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
+  const [form, setForm] = useState({
+    name: "",
+    legal_name: "",
+    num_units: "120",
+    monthly_dues: "350",
+    city: "Austin",
+    state: "TX",
+    timezone: "America/Chicago",
+    kind: "Gated Single-Family Community",
+  });
+
+  const handleCreate = async () => {
+    if (!form.name.trim()) return;
+    try {
+      await mutate("/tenants", "POST", {
+        name: form.name,
+        slug: form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        legal_name: form.legal_name || `${form.name} Homeowners Association, Inc.`,
+        num_units: Number(form.num_units) || 50,
+        monthly_dues: Number(form.monthly_dues) || 300,
+        city: form.city,
+        state: form.state,
+        timezone: form.timezone,
+        kind: form.kind,
+        create_default_coa: true,
+      });
+      setCreating(false);
+      setFlash(`Community '${form.name}' has been created successfully.`);
+      refresh();
+      setTimeout(() => setFlash(null), 6000);
+      setForm({
+        name: "",
+        legal_name: "",
+        num_units: "120",
+        monthly_dues: "350",
+        city: "Austin",
+        state: "TX",
+        timezone: "America/Chicago",
+        kind: "Gated Single-Family Community",
+      });
+    } catch (e: any) {
+      setFlash(`Error creating community: ${e?.message ?? "Failed"}`);
+    }
+  };
+
   const tenant = tenants.find((t) => t.id === selected) ?? null;
-  const totalUnits = tenants.reduce((s, t) => s + t.num_units, 0);
-  const monthlyBilling = tenants.reduce((s, t) => s + t.num_units * t.monthly_dues, 0);
+  const totalUnits = tenants.reduce((s, t) => s + (t.num_units || 0), 0);
+  const monthlyBilling = tenants.reduce((s, t) => s + (t.num_units || 0) * (t.monthly_dues || 0), 0);
 
   return (
     <PageShell>
@@ -74,82 +120,98 @@ export default function TenantsPage() {
         <StatCard label="All active" value={`${tenants.filter((t) => t.status === "active").length} of ${tenants.length}`} tone="success" icon={CheckCircle2} />
       </StatGrid>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {tenants.map((t) => {
-          const isActive = t.id === activeTenantId;
-          return (
-            <Card
-              key={t.id}
-              padded={false}
-              className={
-                "flex flex-col overflow-hidden transition-colors " +
-                (isActive ? "border-primary ring-1 ring-primary/25" : "")
-              }
-            >
-              <div className="border-b bg-muted/40 px-5 py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-semibold">{t.name}</p>
-                    <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                      <MapPin className="h-3 w-3" />
-                      {t.city}, {t.state}
+      {tenants.length === 0 ? (
+        <Card className="flex flex-col items-center justify-center p-12 text-center">
+          <EmptyState
+            icon={Building2}
+            title="No communities yet"
+            description="The system is empty. Create your first community to begin."
+          />
+          {can("tenant.create") && (
+            <Button onClick={() => setCreating(true)} className="mt-6">
+              <Plus className="mr-2 h-4 w-4" />
+              Create your first community
+            </Button>
+          )}
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {tenants.map((t) => {
+            const isActive = t.id === activeTenantId;
+            return (
+              <Card
+                key={t.id}
+                padded={false}
+                className={
+                  "flex flex-col overflow-hidden transition-colors " +
+                  (isActive ? "border-primary ring-1 ring-primary/25" : "")
+                }
+              >
+                <div className="border-b bg-muted/40 px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-base font-semibold">{t.name}</p>
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                        <MapPin className="h-3 w-3" />
+                        {t.city}, {t.state}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {t.is_demo && <Badge tone="neutral">Demo</Badge>}
+                      {isActive && <Badge tone="primary">Viewing</Badge>}
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">{t.kind}</p>
+                </div>
+
+                <div className="grid grid-cols-2 divide-x border-b">
+                  <div className="px-4 py-3">
+                    <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Units
+                    </p>
+                    <p className="stat-value mt-0.5 text-lg font-semibold">
+                      {t.num_units}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {t.is_demo && <Badge tone="neutral">Demo</Badge>}
-                    {isActive && <Badge tone="primary">Viewing</Badge>}
+                  <div className="px-4 py-3">
+                    <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Monthly dues
+                    </p>
+                    <p className="stat-value mt-0.5 text-lg font-semibold">
+                      {money(t.monthly_dues, 0)}
+                    </p>
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">{t.kind}</p>
-              </div>
 
-              <div className="grid grid-cols-2 divide-x border-b">
-                <div className="px-4 py-3">
-                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Units
-                  </p>
-                  <p className="stat-value mt-0.5 text-lg font-semibold">
-                    {t.num_units}
-                  </p>
+                <div className="flex flex-1 flex-col justify-end gap-2 p-4">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Established {t.founded}</span>
+                    <StatusBadge status={t.status} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setSelected(t.id)}
+                    >
+                      Details
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      disabled={isActive}
+                      onClick={() => setActiveTenant(t.id)}
+                    >
+                      {isActive ? "Current" : "Switch to"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="px-4 py-3">
-                  <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Monthly dues
-                  </p>
-                  <p className="stat-value mt-0.5 text-lg font-semibold">
-                    {money(t.monthly_dues, 0)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-1 flex-col justify-end gap-2 p-4">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Established {t.founded}</span>
-                  <StatusBadge status={t.status} />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setSelected(t.id)}
-                  >
-                    Details
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    disabled={isActive}
-                    onClick={() => setActiveTenant(t.id)}
-                  >
-                    {isActive ? "Current" : "Switch to"}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <Card className="border-primary/25 bg-accent/40">
         <p className="flex items-center gap-1.5 text-sm font-semibold">
@@ -246,16 +308,8 @@ export default function TenantsPage() {
               <Button variant="secondary" onClick={() => setCreating(false)}>
                 Cancel
               </Button>
-              <Button
-                onClick={() => {
-                  setCreating(false);
-                  setFlash(
-                    "In the live product this provisions a new community with its chart of accounts, funds and periods. The demo runs on three fixed communities."
-                  );
-                  setTimeout(() => setFlash(null), 7000);
-                }}
-              >
-                Create community
+              <Button onClick={handleCreate} disabled={!form.name.trim() || busy === "/tenants"}>
+                {busy === "/tenants" ? "Creating..." : "Create community"}
               </Button>
             </>
           }
@@ -263,28 +317,55 @@ export default function TenantsPage() {
           <div className="space-y-4">
             <div>
               <Label htmlFor="cn">Community name</Label>
-              <Input id="cn" placeholder="Willow Creek Estates" autoFocus />
+              <Input
+                id="cn"
+                placeholder="Willow Creek Estates"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                autoFocus
+              />
             </div>
             <div>
               <Label htmlFor="cl">Legal name</Label>
-              <Input id="cl" placeholder="Willow Creek Estates Homeowners Association, Inc." />
+              <Input
+                id="cl"
+                placeholder="Willow Creek Estates Homeowners Association, Inc."
+                value={form.legal_name}
+                onChange={(e) => setForm({ ...form, legal_name: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <Label htmlFor="cu">Units</Label>
-                <Input id="cu" type="number" placeholder="120" />
+                <Input
+                  id="cu"
+                  type="number"
+                  placeholder="120"
+                  value={form.num_units}
+                  onChange={(e) => setForm({ ...form, num_units: e.target.value })}
+                />
               </div>
               <div>
                 <Label htmlFor="cd">Monthly dues ($)</Label>
-                <Input id="cd" type="number" placeholder="350" />
+                <Input
+                  id="cd"
+                  type="number"
+                  placeholder="350"
+                  value={form.monthly_dues}
+                  onChange={(e) => setForm({ ...form, monthly_dues: e.target.value })}
+                />
               </div>
               <div>
                 <Label htmlFor="ct">Timezone</Label>
-                <Select id="ct">
-                  <option>America/Los_Angeles</option>
-                  <option>America/Denver</option>
-                  <option>America/Chicago</option>
-                  <option>America/New_York</option>
+                <Select
+                  id="ct"
+                  value={form.timezone}
+                  onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+                >
+                  <option value="America/Los_Angeles">America/Los_Angeles</option>
+                  <option value="America/Denver">America/Denver</option>
+                  <option value="America/Chicago">America/Chicago</option>
+                  <option value="America/New_York">America/New_York</option>
                 </Select>
               </div>
             </div>

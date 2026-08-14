@@ -12,14 +12,13 @@ import {
   Wallet, X, ChevronDown, Check, BarChart3,
 } from "lucide-react";
 import { useAuth } from "../providers";
-import { PERSONAS } from "@/lib/mock-data/seed";
 import { ROLES } from "@/lib/rbac";
-import { resetStore } from "@/lib/mock-data/store";
 import { useApi, useMutate } from "@/lib/use-api";
 import { Badge, Button, Spinner } from "@/components/ui";
 import { ThemeToggle } from "@/components/theme";
 import { relTime } from "@/components/app/kit";
 import { cn } from "@/lib/utils";
+import { isLive } from "@/lib/api";
 
 const ICONS: Record<string, React.ElementType> = {
   "/dashboard": LayoutDashboard,
@@ -119,7 +118,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 /* ------------------------------------------------------------------ sidebar */
 
 function SidebarContent() {
-  const { nav, tenant, persona, role } = useAuth();
+  const { nav, tenant, user, persona, role } = useAuth();
   const pathname = usePathname();
 
   return (
@@ -173,9 +172,9 @@ function SidebarContent() {
 
       <div className="border-t p-3">
         <div className="rounded-lg bg-muted/60 px-2.5 py-2">
-          <p className="truncate text-xs font-semibold">{persona?.full_name}</p>
+          <p className="truncate text-xs font-semibold">{user?.fullName || persona?.full_name}</p>
           <p className="truncate text-2xs text-muted-foreground">
-            {role?.name}
+            {user?.isSuperadmin ? "Super Admin" : role?.name}
           </p>
         </div>
       </div>
@@ -187,12 +186,11 @@ function SidebarContent() {
 
 function TopBar({ onMenu }: { onMenu: () => void }) {
   const {
-    tenants, tenant, setActiveTenant, persona, role, switchPersona, signOut,
-    refresh,
+    tenants, tenant, setActiveTenant, signOut, user, role
   } = useAuth();
   const router = useRouter();
   const [tenantOpen, setTenantOpen] = useState(false);
-  const [personaOpen, setPersonaOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
 
   const { data: notifications } = useApi<any[]>("/notifications", []);
@@ -215,14 +213,15 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
       {/* community switcher */}
       <div className="relative">
         <button
-          onClick={() => setTenantOpen((o) => !o)}
-          className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+          onClick={() => tenants.length > 0 && setTenantOpen((o) => !o)}
+          disabled={tenants.length === 0}
+          className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Building2 className="h-3.5 w-3.5 text-primary" />
-          <span className="max-w-[9rem] truncate">{tenant?.name}</span>
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="max-w-[9rem] truncate">{tenant?.name ?? "No Communities"}</span>
+          {tenants.length > 0 && <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
         </button>
-        {tenantOpen && (
+        {tenantOpen && tenants.length > 0 && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setTenantOpen(false)} />
             <div className="absolute left-0 z-20 mt-1.5 w-72 animate-fade-in overflow-hidden rounded-lg border bg-popover shadow-xl">
@@ -258,19 +257,6 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
       </div>
 
       <div className="flex-1" />
-
-      {/* demo controls */}
-      <button
-        onClick={() => {
-          resetStore();
-          refresh();
-        }}
-        title="Reset all demo data to its original state"
-        className="hidden items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground sm:flex"
-      >
-        <RefreshCw className="h-3.5 w-3.5" />
-        Reset demo
-      </button>
 
       <ThemeToggle />
 
@@ -354,83 +340,69 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
       </div>
 
-      {/* persona switcher */}
+      {/* user menu */}
       <div className="relative">
         <button
-          onClick={() => setPersonaOpen((o) => !o)}
+          onClick={() => setUserMenuOpen((o) => !o)}
           className="flex items-center gap-2 rounded-lg border bg-card py-1 pl-1 pr-2 shadow-sm transition-colors hover:bg-muted"
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-2xs font-bold text-primary">
-            {persona?.full_name.split(" ").map((w) => w[0]).join("")}
+            {(user?.fullName || user?.email || "U")
+              .split(" ")
+              .map((w) => w[0])
+              .join("")}
           </span>
           <span className="hidden text-left sm:block">
             <span className="block max-w-[8rem] truncate text-xs font-semibold leading-tight">
-              {persona?.full_name}
+              {user?.fullName || user?.email}
             </span>
             <span className="block max-w-[8rem] truncate text-[10px] leading-tight text-muted-foreground">
-              {persona?.role_code.replace(/_/g, " ")}
+              {user?.isSuperadmin
+                ? "Super Admin"
+                : role?.name || "Member"}
             </span>
           </span>
           <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
 
-        {personaOpen && (
+        {userMenuOpen && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setPersonaOpen(false)} />
+            <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
             <div className="absolute right-0 z-20 mt-1.5 w-[21rem] animate-fade-in overflow-hidden rounded-lg border bg-popover shadow-xl">
-              <div className="border-b bg-muted/50 px-3 py-2">
-                <p className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Switch role — the app re-renders instantly
+              {/* Real user profile card */}
+              <div className="p-4 space-y-3">
+                <div className="flex items-center gap-3 border-b pb-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                    {(user?.fullName || user?.email || "U")
+                      .split(" ")
+                      .map((w) => w[0])
+                      .join("")}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">
+                      {user?.fullName || "Authenticated User"}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {user?.email}
+                    </p>
+                    <div className="mt-1">
+                      {user?.isSuperadmin ? (
+                        <Badge tone="primary" className="text-[10px]">
+                          Platform Super Administrator
+                        </Badge>
+                      ) : (
+                        <Badge tone="neutral" className="text-[10px]">
+                          {role?.name || "Member"}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-2xs text-muted-foreground">
+                  {isLive ? "Connected to FastAPI Backend (Live Mode)" : "Mock Data Mode"}
                 </p>
               </div>
-              <div className="max-h-96 overflow-y-auto scroll-thin">
-                {PERSONAS.map((p) => {
-                  const r = ROLES[p.role_code];
-                  const active = p.id === persona?.id;
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        switchPersona(p.id);
-                        setPersonaOpen(false);
-                        router.push("/dashboard");
-                      }}
-                      className={cn(
-                        "flex w-full items-start gap-2.5 border-b px-3 py-2.5 text-left last:border-0 transition-colors",
-                        active ? "bg-accent" : "hover:bg-muted/60"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
-                          active
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground"
-                        )}
-                      >
-                        {p.full_name.split(" ").map((w) => w[0]).join("")}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-xs font-semibold">
-                            {p.full_name}
-                          </span>
-                          <Badge
-                            tone={r?.implemented ? "primary" : "warning"}
-                            className="text-[10px]"
-                          >
-                            {p.role_code.replace(/_/g, " ")}
-                          </Badge>
-                        </span>
-                        <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-                          {p.title}
-                        </span>
-                      </span>
-                      {active && <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-primary" />}
-                    </button>
-                  );
-                })}
-              </div>
+
               <button
                 onClick={() => {
                   signOut();
@@ -439,7 +411,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
                 className="flex w-full items-center gap-2 border-t px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <LogOut className="h-3.5 w-3.5" />
-                Back to the sign-in screen
+                Sign out
               </button>
             </div>
           </>

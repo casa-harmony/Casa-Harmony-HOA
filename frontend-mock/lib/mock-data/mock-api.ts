@@ -65,10 +65,48 @@ function route<T>(c: Ctx): T {
 
   /* ------------------------------------------------------------ platform */
 
-  if (p === "/tenants") return ok(TENANTS);
+  if (p === "/tenants") {
+    if (method === "POST") {
+      const newTenant = {
+        id: body.id || `tenant-${TENANTS.length + 1}`,
+        name: body.name || "New Community",
+        slug: body.slug || (body.name || "new-community").toLowerCase().replace(/\s+/g, "-"),
+        legal_name: body.legal_name || body.name || "New HOA, Inc.",
+        status: "active",
+        num_units: Number(body.num_units) || 50,
+        city: body.city || "Austin",
+        state: body.state || "TX",
+        timezone: body.timezone || "America/Chicago",
+        founded: new Date().getFullYear().toString(),
+        monthly_dues: Number(body.monthly_dues) || 300,
+        kind: body.kind || "Single-Family Community",
+      };
+      TENANTS.push(newTenant);
+      return ok(newTenant);
+    }
+    return ok(TENANTS);
+  }
+
   if (p === "/personas") return ok(PERSONAS);
 
-  if (p === "/users") {
+  if (p === "/users" || p === "/rbac/users") {
+    if (method === "POST") {
+      const newUser = {
+        id: `persona-${PERSONAS.length + 1}`,
+        full_name: body.full_name || "New User",
+        email: body.email || "user@casaharmony.ai",
+        title: body.title || "Staff Member",
+        role_code: body.role_code || "HOA_ADMIN",
+        is_superadmin: Boolean(body.is_superadmin),
+        tenant_ids: body.tenant_ids && body.tenant_ids.length ? body.tenant_ids : [TENANTS[0]?.id || "tenant-1"],
+      };
+      PERSONAS.push(newUser as any);
+      return ok({
+        ...newUser,
+        is_active: true,
+        last_login_at: nowIso(),
+      });
+    }
     return ok(
       PERSONAS.map((u) => ({
         id: u.id,

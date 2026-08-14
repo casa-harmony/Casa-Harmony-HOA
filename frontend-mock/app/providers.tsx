@@ -18,11 +18,12 @@ import React, {
   useState,
 } from "react";
 import { PERSONAS, TENANTS, type Persona, type Tenant } from "@/lib/mock-data/seed";
-import { permsFor, ROLES, roleHas, navFor } from "@/lib/rbac";
+import { permsFor, ROLES, roleHas, navFor, navForPermissions } from "@/lib/rbac";
 import { subscribe } from "@/lib/mock-data/store";
 import { getAuthToken, isLive, setAuthToken, setUnauthorizedHandler } from "@/lib/api";
 import {
   fetchMe,
+  fetchTenants,
   login as liveLogin,
   type LiveMembership,
 } from "@/lib/auth-live";
@@ -87,8 +88,10 @@ interface AuthState {
     tenant_id: string;
     tenant_name: string;
     tenant_slug: string;
-    role_code: string;
-    role_name: string;
+    role_code: string | null;
+    role_name: string | null;
+    scope?: string;
+    is_demo?: boolean;
   }[];
   logout: () => void;
   clearMustChange: () => void;
@@ -147,10 +150,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const raw = localStorage.getItem(LIVE_KEY);
         const cached = raw
-          ? (JSON.parse(raw) as { memberships: LiveMembership[]; tenantId: string | null })
-          : { memberships: [], tenantId: null };
+          ? (JSON.parse(raw) as { tenantId: string | null })
+          : { tenantId: null };
 
-        const me = await fetchMe(cached.tenantId);
+        const memberships = await fetchTenants();
+        const tenantId = cached.tenantId ?? memberships[0]?.tenant_id ?? null;
+        
+        const me = await fetchMe(tenantId);
         if (!alive) return;
         setLive({
           userId: me.user_id,
@@ -158,8 +164,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           fullName: me.full_name,
           isSuperadmin: me.is_superadmin,
           mustChangePassword: me.must_change_password,
-          memberships: cached.memberships,
-          tenantId: cached.tenantId ?? cached.memberships[0]?.tenant_id ?? null,
+          memberships: memberships,
+          tenantId: tenantId,
           permissions: me.permissions,
         });
       } catch {
@@ -226,7 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (s) {
         localStorage.setItem(
           LIVE_KEY,
-          JSON.stringify({ memberships: s.memberships, tenantId: s.tenantId })
+          JSON.stringify({ tenantId: s.tenantId })
         );
       } else {
         localStorage.removeItem(LIVE_KEY);
@@ -239,7 +245,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithPassword = useCallback(
     async (email: string, password: string, mfaCode?: string) => {
       const res = await liveLogin(email, password, mfaCode);
-      const tenantId = res.memberships[0]?.tenant_id ?? null;
+      const memberships = await fetchTenants();
+      const tenantId = memberships[0]?.tenant_id ?? null;
       // The token is set; ask the server what this user may do in that HOA.
       const me = await fetchMe(tenantId);
       const next: LiveSession = {
@@ -248,7 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         fullName: res.full_name,
         isSuperadmin: res.is_superadmin,
         mustChangePassword: res.must_change_password,
-        memberships: res.memberships,
+        memberships: memberships,
         tenantId,
         permissions: me.permissions,
       };
@@ -336,6 +343,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const permissions = live?.permissions ?? [];
       const permSet = new Set(permissions);
 
+      const isPlatformZeroState = live?.isSuperadmin && tenants.length === 0;
+      let navGroups = live ? navForPermissions(permissions, live.isSuperadmin) : [];
+      if (isPlatformZeroState) {
+        navGroups = navGroups.map(g => ({
+          ...g,
+          items: g.items.filter(i => i.href === "/tenants" || i.href === "/users")
+        })).filter(g => g.items.length > 0);
+      }
+
       return {
         ready,
         signedIn: !!live,
@@ -348,7 +364,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         revision,
         can: (perm: string) =>
           !!live && (live.isSuperadmin || permSet.has(perm)),
-        nav: live ? navFor(roleCode) : [],
+        nav: navGroups,
         signIn,
         signInWithPassword,
         switchPersona,

@@ -66,6 +66,8 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_ele
             tenant_slug=t.slug,
             role_code=r.code,
             role_name=r.name,
+            scope="tenant",
+            is_demo=t.is_demo,
         )
         for (_m, t, r) in rows
     ]
@@ -138,8 +140,53 @@ def me(principal: Principal = Depends(get_principal)):
         is_superadmin=principal.is_superadmin,
         must_change_password=principal.user.must_change_password,
         active_tenant_id=principal.tenant_id,
+        scope="platform" if principal.is_superadmin else "tenant",
         permissions=sorted(principal.permissions) if not principal.is_superadmin else ["*"],
     )
+
+
+@router.get("/tenants", response_model=list[TenantMembershipOut])
+def get_tenants(
+    include_demo: bool = False,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_elevated_db),
+):
+    if user.is_superadmin:
+        query = select(Tenant).where(Tenant.status != "suspended")
+        if not include_demo:
+            query = query.where(Tenant.is_demo.is_(False))
+        tenants = db.execute(query).scalars().all()
+        return [
+            TenantMembershipOut(
+                tenant_id=t.id,
+                tenant_name=t.name,
+                tenant_slug=t.slug,
+                role_code=None,
+                role_name=None,
+                scope="platform",
+                is_demo=t.is_demo,
+            )
+            for t in tenants
+        ]
+    else:
+        rows = db.execute(
+            select(Membership, Tenant, Role)
+            .join(Tenant, Tenant.id == Membership.tenant_id)
+            .join(Role, Role.id == Membership.role_id)
+            .where(Membership.user_id == user.id, Membership.is_active.is_(True))
+        ).all()
+        return [
+            TenantMembershipOut(
+                tenant_id=t.id,
+                tenant_name=t.name,
+                tenant_slug=t.slug,
+                role_code=r.code,
+                role_name=r.name,
+                scope="tenant",
+                is_demo=t.is_demo,
+            )
+            for (_m, t, r) in rows
+        ]
 
 
 @router.post("/change-password")

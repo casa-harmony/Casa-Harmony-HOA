@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowRight, Banknote, Bell, CheckSquare, FileText,
-  HandCoins, Ticket, TrendingUp, Users, Wallet,
+  AlertTriangle, ArrowRight, Banknote, Bell, Building2, CheckSquare, FileText,
+  HandCoins, Ticket, TrendingUp, UserCog, Users, Wallet,
 } from "lucide-react";
 import { useAuth } from "../../providers";
 import { useApi } from "@/lib/use-api";
@@ -17,7 +17,7 @@ import {
 } from "@/components/app/charts";
 
 export default function DashboardPage() {
-  const { persona, role, tenant, can } = useAuth();
+  const { persona, role, tenant, tenants, can, user } = useAuth();
 
   const { data: board } = useApi<any>("/board/exec-dashboard", null);
   const { data: tickets } = useApi<any[]>(
@@ -52,14 +52,51 @@ export default function DashboardPage() {
   const unread = notifications.filter((n) => !n.is_read);
   const overBudget = budget.filter((b) => b.pct > 100);
 
-  const firstName = persona?.full_name.split(" ")[0] ?? "there";
+  const firstName = (user?.fullName || persona?.full_name || "there").split(" ")[0];
+
+  if (tenants.length === 0 && user?.isSuperadmin) {
+    return (
+      <PageShell>
+        <PageHeader
+          eyebrow="Casa Harmony"
+          title={`Welcome to your new platform, ${firstName}`}
+          description="The system is currently empty. To get started, you must create the first community."
+        />
+        <div className="flex h-[60vh] flex-col items-center justify-center space-y-6">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+            <Building2 className="h-10 w-10 text-primary" />
+          </div>
+          <div className="text-center">
+            <h2 className="text-2xl font-bold tracking-tight">Let's get started</h2>
+            <p className="mt-2 text-muted-foreground max-w-sm mx-auto">
+              Create your first community to automatically provision its chart of accounts, funds, and periods.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Link href="/tenants">
+              <Button size="lg">
+                <Building2 className="mr-2 h-4 w-4" />
+                Create your first community
+              </Button>
+            </Link>
+            <Link href="/users">
+              <Button variant="outline" size="lg">
+                <UserCog className="mr-2 h-4 w-4" />
+                Add system administrator
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell>
       <PageHeader
         eyebrow={tenant?.name}
         title={`Good morning, ${firstName}`}
-        description={`You are signed in as ${auth.isSuperadmin ? "Platform Super Administrator" : role?.name}. This dashboard only shows what your role is allowed to see — sign in as someone else and it changes.`}
+        description={`You are signed in as ${user?.isSuperadmin ? "Platform Super Administrator" : role?.name}. This dashboard only shows what your role is allowed to see — sign in as someone else and it changes.`}
         actions={
           <Link href="/roles-and-flow">
             <Button variant="secondary" size="sm">

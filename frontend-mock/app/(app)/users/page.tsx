@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Building2, KeyRound, ShieldCheck, UserCog, Users, X } from "lucide-react";
+import { Check, Building2, KeyRound, Plus, ShieldCheck, UserCog, Users, X } from "lucide-react";
 import { useAuth } from "../../providers";
-import { useApi } from "@/lib/use-api";
+import { useApi, useMutate } from "@/lib/use-api";
 import { TENANTS } from "@/lib/mock-data/seed";
 import { ALL_PERMISSIONS, PERMISSIONS, ROLES, permsFor, roleHas } from "@/lib/rbac";
-import { Badge, Button, Card } from "@/components/ui";
+import { Alert, Badge, Button, Card, Input, Label, Modal, Select } from "@/components/ui";
 import {
   Column, DataTable, DetailSheet, Facts, PageHeader, PageShell, SectionGuide,
   StatCard, StatGrid, Toolbar,
@@ -14,11 +14,52 @@ import {
 import { cn } from "@/lib/utils";
 
 export default function UsersPage() {
-  const { persona } = useAuth();
+  const { can, refresh, user: userSession } = useAuth();
   const { data: users } = useApi<any[]>("/users", []);
+  const { mutate, busy } = useMutate();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [roleTab, setRoleTab] = useState<string>("HOA_ADMIN");
+  const [creating, setCreating] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const [form, setForm] = useState({
+    full_name: "",
+    email: "",
+    title: "Community Administrator",
+    role_code: "HOA_ADMIN",
+    is_superadmin: false,
+    tenant_ids: [TENANTS[0]?.id || "tenant-1"],
+  });
+
+  const handleCreateUser = async () => {
+    if (!form.full_name.trim() || !form.email.trim()) return;
+    try {
+      await mutate("/rbac/users", "POST", {
+        full_name: form.full_name,
+        email: form.email,
+        title: form.title,
+        role_code: form.role_code,
+        is_superadmin: form.is_superadmin,
+        tenant_ids: form.tenant_ids,
+        password: "TempPassword123!",
+      });
+      setCreating(false);
+      setFlash(`User '${form.full_name}' created successfully as ${form.role_code.replace(/_/g, " ")}.`);
+      refresh();
+      setTimeout(() => setFlash(null), 6000);
+      setForm({
+        full_name: "",
+        email: "",
+        title: "Community Administrator",
+        role_code: "HOA_ADMIN",
+        is_superadmin: false,
+        tenant_ids: [TENANTS[0]?.id || "tenant-1"],
+      });
+    } catch (e: any) {
+      setFlash(`Error creating user: ${e?.message ?? "Failed"}`);
+    }
+  };
 
   const user = users.find((u) => u.id === selected) ?? null;
 
@@ -68,9 +109,9 @@ export default function UsersPage() {
       header: "Communities",
       render: (u) => (
         <div className="flex flex-wrap gap-1">
-          {u.tenant_ids.map((id: string) => (
+          {(u.tenant_ids || []).map((id: string) => (
             <Badge key={id} tone="neutral" className="text-[10px]">
-              {TENANTS.find((t) => t.id === id)?.name}
+              {TENANTS.find((t) => t.id === id)?.name || id}
             </Badge>
           ))}
         </div>
@@ -101,7 +142,17 @@ export default function UsersPage() {
         eyebrow="Administration"
         title="Users & Roles"
         description="Staff accounts and what each one is allowed to do. A person has one login for the whole platform; their powers are granted per community."
+        actions={
+          (can("user.manage") || userSession?.isSuperadmin) && (
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              Create user
+            </Button>
+          )
+        }
       />
+
+      {flash && <Alert kind="success">{flash}</Alert>}
 
       <SectionGuide
         what="The access control centre. Every staff member has a single global login, and a separate grant — called a membership — for each community they work on. That grant carries the role, and the role carries the permissions."
@@ -283,18 +334,113 @@ export default function UsersPage() {
               </p>
             </div>
 
-            {user.id === persona?.id && (
+            {user.email === userSession?.email && (
               <Card className="border-primary/25 bg-accent/40">
                 <p className="text-sm font-semibold">This is you</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  You are currently signed in as this person. Use the switcher
-                  in the top-right corner to see the application as someone
-                  else.
+                  You are currently signed in as this person.
                 </p>
               </Card>
             )}
           </div>
         </DetailSheet>
+      )}
+      {creating && (
+        <Modal
+          open
+          onClose={() => setCreating(false)}
+          title="Create a user account"
+          description="A person is created once with a single login. Assign their primary role and community access."
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setCreating(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateUser}
+                disabled={!form.full_name.trim() || !form.email.trim() || busy === "/rbac/users"}
+              >
+                {busy === "/rbac/users" ? "Creating..." : "Create user"}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="ufn">Full Name</Label>
+              <Input
+                id="ufn"
+                placeholder="Jane Doe"
+                value={form.full_name}
+                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                autoFocus
+              />
+            </div>
+            <div>
+              <Label htmlFor="uem">Email Address</Label>
+              <Input
+                id="uem"
+                type="email"
+                placeholder="jane.doe@casaharmony.ai"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="utitle">Job Title</Label>
+              <Input
+                id="utitle"
+                placeholder="Community Manager / Lead Accountant"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="urole">Assigned Role</Label>
+                <Select
+                  id="urole"
+                  value={form.role_code}
+                  onChange={(e) => setForm({ ...form, role_code: e.target.value })}
+                >
+                  {Object.values(ROLES).map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.name} ({r.code})
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="utenant">Assigned Community</Label>
+                <Select
+                  id="utenant"
+                  value={form.tenant_ids[0] || ""}
+                  onChange={(e) => setForm({ ...form, tenant_ids: [e.target.value] })}
+                >
+                  {TENANTS.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            {userSession?.isSuperadmin && (
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="superadmin-chk"
+                  checked={form.is_superadmin}
+                  onChange={(e) => setForm({ ...form, is_superadmin: e.target.checked })}
+                  className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                />
+                <Label htmlFor="superadmin-chk" className="text-xs font-semibold cursor-pointer">
+                  Grant Platform Superadmin Access (Cross-Tenant System Access)
+                </Label>
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </PageShell>
   );

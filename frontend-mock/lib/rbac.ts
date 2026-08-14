@@ -373,3 +373,14 @@ export function navFor(roleCode: string): NavGroup[] {
     ),
   })).filter((g) => g.items.length > 0);
 }
+
+/** Nav filtered by actual backend permissions, authoritative for live mode. */
+export function navForPermissions(permissions: string[], isSuperadmin: boolean): NavGroup[] {
+  const permSet = new Set(permissions);
+  return NAV_GROUPS.map((g) => ({
+    title: g.title,
+    items: g.items.filter(
+      (i) => !i.disabled && (i.perm === null || isSuperadmin || permSet.has(i.perm))
+    ),
+  })).filter((g) => g.items.length > 0);
+}

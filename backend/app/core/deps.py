@@ -76,6 +76,33 @@ def get_principal(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid X-Tenant-Id") from exc
 
     if user.is_superadmin:
+        if tenant_id is not None:
+            from app.models.identity import Tenant
+            tenant = db.get(Tenant, tenant_id)
+            if not tenant:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found")
+            
+            # Record audit event if first time in this session (since last login)
+            if user.last_login_at:
+                from app.models.audit import AuditLog
+                recent = db.execute(
+                    select(AuditLog).where(
+                        AuditLog.actor_id == user.id,
+                        AuditLog.action == "PLATFORM_TENANT_ACCESS",
+                        AuditLog.tenant_id == tenant_id,
+                        AuditLog.created_at >= user.last_login_at
+                    )
+                ).first()
+                if not recent:
+                    from app.services import audit
+                    audit.record(
+                        db,
+                        action="PLATFORM_TENANT_ACCESS",
+                        entity_type="Tenant",
+                        entity_id=str(tenant_id),
+                        tenant_id=tenant_id
+                    )
+
         # SUPERADMIN holds every permission across all tenants.
         return Principal(user=user, tenant_id=tenant_id, is_superadmin=True, permissions=frozenset())
 

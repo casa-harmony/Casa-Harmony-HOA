@@ -24,8 +24,10 @@ class TenantMembershipOut(BaseModel):
     tenant_id: uuid.UUID
     tenant_name: str
     tenant_slug: str
-    role_code: str
-    role_name: str
+    role_code: str | None
+    role_name: str | None
+    scope: str
+    is_demo: bool
 
 
 class LoginResponse(BaseModel):
@@ -47,6 +49,7 @@ class MeResponse(BaseModel):
     is_superadmin: bool
     must_change_password: bool = False
     active_tenant_id: uuid.UUID | None
+    scope: str
     permissions: list[str]
 
 

@@ -18,8 +18,10 @@ export interface LiveMembership {
   tenant_id: string;
   tenant_name: string;
   tenant_slug: string;
-  role_code: string;
-  role_name: string;
+  role_code: string | null;
+  role_name: string | null;
+  scope: string;
+  is_demo: boolean;
 }
 
 export interface LoginResponse {
@@ -41,6 +43,7 @@ export interface MeResponse {
   is_superadmin: boolean;
   must_change_password: boolean;
   active_tenant_id: string | null;
+  scope: string;
   permissions: string[];
 }
 
@@ -71,6 +74,10 @@ export async function login(
  */
 export async function fetchMe(tenantId: string | null): Promise<MeResponse> {
   return apiFetch<MeResponse>("/auth/me", { tenantId });
+}
+
+export async function fetchTenants(): Promise<LiveMembership[]> {
+  return apiFetch<LiveMembership[]>("/auth/tenants");
 }
 
 export async function changePassword(
