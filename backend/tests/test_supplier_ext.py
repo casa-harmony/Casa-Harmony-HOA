@@ -22,7 +22,7 @@ def _h(token, tid):
 def _ctx():
     token = client.post("/api/v1/auth/login",
                         json={"email": SUPERADMIN, "password": SUPERADMIN_PW}).json()["access_token"]
-    tid = next(t for t in client.get("/api/v1/tenants",
+    tid = next(t for t in client.get("/api/v1/tenants?include_demo=true",
                headers={"Authorization": f"Bearer {token}"}).json()
                if t["slug"] == "casa-harmony")["id"]
     return token, tid

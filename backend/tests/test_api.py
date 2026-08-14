@@ -43,9 +43,9 @@ def test_superadmin_can_provision_tenants_and_rls_isolation():
     import uuid as _uuid
 
     suffix = _uuid.uuid4().hex[:8]
-    t1 = client.post("/api/v1/tenants", headers=_auth(token),
+    t1 = client.post("/api/v1/tenants?include_demo=true", headers=_auth(token),
                      json={"name": f"Alpha HOA {suffix}", "slug": f"alpha-{suffix}", "admin_email": f"admin-{suffix}@example.com", "admin_password": "securepassword"})
-    t2 = client.post("/api/v1/tenants", headers=_auth(token),
+    t2 = client.post("/api/v1/tenants?include_demo=true", headers=_auth(token),
                      json={"name": f"Beta HOA {suffix}", "slug": f"beta-{suffix}", "admin_email": f"beta-{suffix}@example.com", "admin_password": "securepassword"})
     assert t1.status_code == 201 and t2.status_code == 201, (t1.text, t2.text)
     tid1, tid2 = t1.json()["id"], t2.json()["id"]
@@ -84,7 +84,7 @@ def test_code_combination_validation_and_export():
     sa = _login(SUPERADMIN, SUPERADMIN_PW)
     token = sa["access_token"]
     # Use the first available tenant.
-    tenants = client.get("/api/v1/tenants", headers=_auth(token)).json()
+    tenants = client.get("/api/v1/tenants?include_demo=true", headers=_auth(token)).json()
     demo = tenants[0]
     tid = demo["id"]
     structure = client.get("/api/v1/coa/structures", headers=_auth(token, tid)).json()[0]

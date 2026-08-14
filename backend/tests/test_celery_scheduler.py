@@ -39,7 +39,7 @@ def test_task_runs_eagerly_against_db():
 def test_scheduler_info_reports_mode():
     token = client.post("/api/v1/auth/login",
                         json={"email": SUPERADMIN, "password": SUPERADMIN_PW}).json()["access_token"]
-    tid = next(t for t in client.get("/api/v1/tenants",
+    tid = next(t for t in client.get("/api/v1/tenants?include_demo=true",
                headers={"Authorization": f"Bearer {token}"}).json() if t["slug"] == "casa-harmony")["id"]
     info = client.get("/api/v1/scheduler/info",
                       headers={"Authorization": f"Bearer {token}", "X-Tenant-Id": tid}).json()

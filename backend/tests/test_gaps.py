@@ -29,7 +29,7 @@ def _h(token, tid=None):
 
 
 def _demo(token):
-    tenants = client.get("/api/v1/tenants", headers=_h(token)).json()
+    tenants = client.get("/api/v1/tenants?include_demo=true", headers=_h(token)).json()
     demo = next(t for t in tenants if t["slug"] == "casa-harmony")
     structure = client.get("/api/v1/coa/structures", headers=_h(token, demo["id"])).json()[0]
     return demo["id"], structure["id"]
