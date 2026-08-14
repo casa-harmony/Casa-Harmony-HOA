@@ -9,6 +9,7 @@ from app.models.identity import Tenant
 from app.schemas.period import PeriodOut, RollForwardOut
 from app.services import audit, period_close, reports
 from app.services.period_close import PeriodError
+from app.services.provisioning import generate_periods
 
 router = APIRouter(
     prefix="/periods", tags=["periods"], dependencies=[Depends(require_active_tenant)]
@@ -19,6 +20,14 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 @router.get("", response_model=list[PeriodOut])
 def list_periods(db: Session = Depends(get_db),
                  p: Principal = Depends(require_permission("gl.period.manage"))):
+    return period_close.list_periods(db, p.tenant_id)
+
+
+@router.post("/generate", response_model=list[PeriodOut])
+def generate(year: int, db: Session = Depends(get_db), p: Principal = Depends(require_permission("gl.period.manage"))):
+    generate_periods(db, p.tenant_id, year, p.user.id)
+    db.commit()
+    audit.record(db, action="GENERATE_PERIODS", entity_type="AccountingPeriod", entity_id=p.tenant_id, after={"year": year})
     return period_close.list_periods(db, p.tenant_id)
 
 

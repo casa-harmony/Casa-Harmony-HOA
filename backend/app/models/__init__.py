@@ -71,7 +71,7 @@ from app.models.workflow import (  # noqa: F401
     ApprovalRequest,
     ApprovalRule,
 )
-from app.models.service_desk import ServiceTicket  # noqa: F401
+from app.models.service_desk import ServiceTicket, ServiceTicketComment  # noqa: F401
 from app.models.budget import GlBudget  # noqa: F401
 from app.models.resident import Resident, ResidentUnit  # noqa: F401
 from app.models.otp import ResidentOtpChallenge  # noqa: F401
@@ -169,6 +169,7 @@ __all__ = [
     "ApprovalRequest",
     "ApprovalAction",
     "ServiceTicket",
+    "ServiceTicketComment",
     "GlBudget",
     "Resident",
     "ResidentUnit",

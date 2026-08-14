@@ -37,10 +37,10 @@ from sqlalchemy import select
 
 from app.core.database import session_for
 from app.core.security import hash_password
-from app.models.identity import Membership, Role, Tenant, User
+from app.models.identity import Tenant, User
 from app.models.resident import Resident, ResidentUnit
 from app.models.subledger import ArHomeowner
-from app.services.coa_bootstrap import provision_default_coa
+from app.services.provisioning import provision_tenant
 
 
 def _ensure_permissions_and_roles(db):
@@ -104,39 +104,19 @@ def main() -> int:
         ).scalars().first()
         actor_id = superadmin.id if superadmin else None
 
-        # 1. tenant
-        tenant = Tenant(
-            name=args.name, slug=args.slug, status="active",
-            created_by=actor_id, updated_by=actor_id,
+        tenant = provision_tenant(
+            db=db,
+            slug=args.slug,
+            name=args.name,
+            admin_email=args.admin_email,
+            admin_password=args.admin_password,
+            admin_name=args.admin_name,
+            create_default_coa=not args.no_coa,
+            actor_id=actor_id,
         )
-        db.add(tenant)
-        db.flush()
         print(f"  created community {tenant.name!r} (slug={tenant.slug}, id={tenant.id})")
-
-        # 2. chart of accounts
-        if not args.no_coa:
-            provision_default_coa(db, tenant.id, actor_id)
-            print("  provisioned default 6-segment Chart of Accounts")
-
-        # 3. admin login (SYSADMIN) — reuse an existing user with this email
-        admin = db.execute(
-            select(User).where(User.email == args.admin_email.lower())
-        ).scalar_one_or_none()
-        created_admin = admin is None
-        if admin is None:
-            admin = User(
-                email=args.admin_email.lower(),
-                full_name=args.admin_name or args.admin_email.split("@")[0],
-                hashed_password=hash_password(args.admin_password),
-                is_superadmin=False,
-                must_change_password=False,
-            )
-            db.add(admin)
-            db.flush()
-        db.add(Membership(tenant_id=tenant.id, user_id=admin.id, role_id=sysadmin_role.id,
-                          is_active=True, created_by=actor_id, updated_by=actor_id))
-        verb = "created" if created_admin else "linked existing"
-        print(f"  {verb} admin {admin.email} as SYSADMIN of {tenant.slug}")
+        print(f"  provisioned default 6-segment Chart of Accounts and all 12 setup steps")
+        print(f"  created/linked admin {args.admin_email} as SYSADMIN of {tenant.slug}")
 
         # 4. residents + their units
         for r in args.resident:

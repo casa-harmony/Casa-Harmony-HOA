@@ -8,10 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import Principal, get_principal, require_permission, require_superadmin
-from app.models.identity import Tenant
-from app.schemas.tenant import TenantCreate, TenantOut, TenantUpdate
+from app.models.identity import Tenant, User, Role, Membership
+from app.schemas.tenant import TenantCreate, TenantOut, TenantUpdate, TenantAdminCreate
 from app.services import audit
-from app.services.coa_bootstrap import provision_default_coa
+from app.services.provisioning import provision_tenant
+from app.services.readiness import get_tenant_readiness
+from app.core.security import hash_password
+from sqlalchemy import text
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -62,26 +65,27 @@ def create_tenant(
     if db.execute(select(Tenant).where(Tenant.slug == payload.slug)).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, f"Slug '{payload.slug}' already in use")
 
-    tenant = Tenant(
-        **payload.model_dump(exclude={"create_default_coa"}),
-        created_by=principal.user.id,
-        updated_by=principal.user.id,
+    tenant = provision_tenant(
+        db=db,
+        slug=payload.slug,
+        name=payload.name,
+        admin_email=payload.admin_email,
+        admin_password=payload.admin_password,
+        admin_name=payload.admin_name,
+        legal_name=payload.legal_name,
+        num_units=payload.num_units,
+        address_line1=payload.address_line1,
+        address_line2=payload.address_line2,
+        city=payload.city,
+        state=payload.state,
+        postal_code=payload.postal_code,
+        monthly_dues=payload.monthly_dues,
+        kind=payload.kind,
+        is_demo=payload.is_demo,
+        create_default_coa=payload.create_default_coa,
+        actor_id=principal.user.id,
     )
-    db.add(tenant)
-    db.flush()
-
-    if payload.create_default_coa:
-        provision_default_coa(db, tenant.id, principal.user.id)
-
-    audit.record(
-        db,
-        action="CREATE",
-        entity_type="Tenant",
-        entity_id=tenant.id,
-        after={"name": tenant.name, "slug": tenant.slug},
-        tenant_id=tenant.id,
-        ip_address=getattr(request.state, "client_ip", None),
-    )
+    
     return tenant
 
 
@@ -123,3 +127,145 @@ def update_tenant(
         ip_address=getattr(request.state, "client_ip", None),
     )
     return tenant
+
+
+@router.post("/{tenant_id}/admins", status_code=status.HTTP_201_CREATED)
+def create_tenant_admin(
+    tenant_id: uuid.UUID,
+    payload: TenantAdminCreate,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("user.manage")),
+):
+    if principal.tenant_id != tenant_id and not principal.is_superadmin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized to manage this tenant")
+        
+    role = db.execute(
+        select(Role).where(Role.code == payload.role_code, (Role.tenant_id == tenant_id) | (Role.tenant_id.is_(None)))
+    ).scalars().first()
+    if not role:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Role '{payload.role_code}' not found")
+        
+    user = db.execute(select(User).where(User.email == payload.email.lower())).scalar_one_or_none()
+    if not user:
+        if not payload.password and not payload.send_invite:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Must provide password or send_invite for new users")
+        user = User(
+            email=payload.email.lower(),
+            full_name=payload.full_name,
+            hashed_password=hash_password(payload.password) if payload.password else "",
+            is_superadmin=False,
+            must_change_password=True,
+        )
+        db.add(user)
+        db.flush()
+        
+    membership = db.execute(
+        select(Membership).where(Membership.user_id == user.id, Membership.tenant_id == tenant_id, Membership.role_id == role.id)
+    ).scalar_one_or_none()
+    
+    if not membership:
+        membership = Membership(
+            tenant_id=tenant_id,
+            user_id=user.id,
+            role_id=role.id,
+            job_title=payload.job_title,
+            is_active=True,
+            created_by=principal.user.id,
+            updated_by=principal.user.id,
+        )
+        db.add(membership)
+        
+    db.commit()
+    return {"message": "Admin created successfully"}
+
+
+@router.get("/{tenant_id}/readiness")
+def get_readiness(
+    tenant_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(get_principal),
+):
+    if principal.tenant_id != tenant_id and not principal.is_superadmin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized to read this tenant")
+    
+    tenant = db.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found")
+        
+    return get_tenant_readiness(db, tenant_id)
+
+
+TENANT_TABLES_CHILD_FIRST = [
+    # AR / collections / statements
+    "statement_deliveries", "statement_runs", "dunning_logs", "dunning_rules",
+    "payment_plan_installments", "payment_plans", "liens", "collection_cases",
+    "ar_receipts", "ar_invoices", "ar_late_fee_rules", "ar_billing_plan_lines",
+    "ar_billing_plans", "ar_homeowners",
+    # resident portal
+    "resident_units", "resident_otp_challenges", "residents",
+    # AP / PO / receiving / vendors
+    "ap_invoice_holds", "ap_invoice_distributions", "ap_payment_links",
+    "ap_payment_schedules", "ap_payments", "ap_invoices",
+    "rcv_transactions", "rcv_lines", "rcv_headers",
+    "po_encumbrances", "po_lines", "purchase_orders",
+    "supplier_bank_accounts", "supplier_contacts", "supplier_sites", "vendors",
+    "distribution_sets", "payment_terms", "vendor_types",
+    # cash / gateway / payments
+    "gateway_transactions", "gateway_configs", "payment_tokens",
+    "bank_statement_lines", "bank_statements", "bank_accounts", "banks",
+    # GL / budget / periods / encumbrance
+    "gl_journal_lines", "gl_journals", "gl_batches", "gl_posting_runs",
+    "gl_balances", "gl_budget_lines", "gl_budgets",
+    "budget_control", "budget_lines", "budget_versions",
+    "encumbrance_settings", "accounting_periods",
+    # fixed assets
+    "reserve_study_components", "reserve_studies", "fixed_assets",
+    # COA / KFF
+    "code_combinations", "cross_validation_rules", "value_set_values",
+    "value_sets", "coa_segments", "coa_structures",
+    # service desk / approvals / notifications / compliance / migration
+    "service_tickets", "approval_requests", "approval_rules",
+    "approval_hierarchies", "notifications", "compliance_items",
+    "migration_records", "migration_batches", "golive_status", "backup_runs",
+    "scheduler_configs", "job_runs", "document_attachments",
+    # identity (memberships before roles; tenant roles are tenant-scoped)
+    "memberships", "audit_logs",
+]
+
+
+@router.delete("/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_tenant(
+    tenant_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_superadmin),
+):
+    tenant = db.get(Tenant, tenant_id)
+    if not tenant:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found")
+        
+    if tenant.slug == "casa-harmony":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot purge the protected demo tenant.")
+
+    existing = {r[0] for r in db.execute(text(
+        "SELECT c.table_name FROM information_schema.columns c "
+        "WHERE c.table_schema = 'public' AND c.column_name = 'tenant_id'"
+    )).all()}
+    tables = [t for t in TENANT_TABLES_CHILD_FIRST if t in existing]
+
+    tid = str(tenant_id)
+    for table in tables:
+        db.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tid})
+        
+    db.execute(text("DELETE FROM role_permissions WHERE role_id IN "
+                    "(SELECT id FROM roles WHERE tenant_id = :tid)"), {"tid": tid})
+    db.execute(text("DELETE FROM roles WHERE tenant_id = :tid"), {"tid": tid})
+    db.execute(text("DELETE FROM tenants WHERE id = :tid"), {"tid": tid})
+
+    orphans = db.execute(text(
+        "SELECT id FROM users u WHERE u.is_superadmin = false "
+        "AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)"
+    )).all()
+    for (uid,) in orphans:
+        db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(uid)})
+
+    return None

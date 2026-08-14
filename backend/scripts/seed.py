@@ -30,8 +30,7 @@ from app.models.resident import Resident, ResidentUnit
 from app.models.subledger import ArHomeowner
 from app.models.workflow import ApprovalHierarchy, ApprovalRule
 from app.core.security import hash_password
-from app.services.coa_bootstrap import provision_default_coa
-from app.services.kff import create_combination
+from app.services.provisioning import provision_tenant
 
 
 def _ensure_permissions(db) -> dict[str, Permission]:
@@ -94,83 +93,26 @@ def main() -> int:
             "Platform Super Administrator", is_superadmin=True,
         )
 
-        # --- Demo HOA tenant + default COA ---
-        tenant = db.execute(select(Tenant).where(Tenant.slug == "casa-harmony")).scalar_one_or_none()
-        created_tenant = tenant is None
-        if tenant is None:
-            tenant = Tenant(
-                name="Casa Harmony Master Association",
-                slug="casa-harmony",
-                legal_name="Casa Harmony Master Association, Inc.",
-                num_units=1000,
-                city="Naples",
-                state="FL",
-                postal_code="34102",
-                created_by=superadmin.id,
-                updated_by=superadmin.id,
-            )
-            db.add(tenant)
-            db.flush()
-            structure = provision_default_coa(db, tenant.id, superadmin.id)
-        else:
-            from app.models.kff import KffStructure
-
-            structure = db.execute(
-                select(KffStructure).where(KffStructure.tenant_id == tenant.id)
-            ).scalar_one_or_none()
-
-        # --- Demo SYSADMIN user with membership in the demo HOA ---
-        sysadmin = _ensure_user(
-            db, "sysadmin@casaharmony.ai", "ChangeMe!Sysadmin1",
-            "Demo System Administrator", is_superadmin=False,
+        # --- Demo HOA tenant + default COA + setup ---
+        tenant = provision_tenant(
+            db=db,
+            slug="casa-harmony",
+            name="Casa Harmony Master Association",
+            legal_name="Casa Harmony Master Association, Inc.",
+            num_units=1000,
+            city="Naples",
+            state="FL",
+            postal_code="34102",
+            admin_email="sysadmin@casaharmony.ai",
+            admin_password="ChangeMe!Sysadmin1",
+            admin_name="Demo System Administrator",
+            is_demo=True,
+            create_default_coa=True,
+            actor_id=superadmin.id,
         )
-        sysadmin_role = roles["SYSADMIN"]
-        has_membership = db.execute(
-            select(Membership).where(
-                Membership.user_id == sysadmin.id,
-                Membership.tenant_id == tenant.id,
-                Membership.role_id == sysadmin_role.id,
-            )
-        ).scalar_one_or_none()
-        if has_membership is None:
-            db.add(Membership(
-                tenant_id=tenant.id, user_id=sysadmin.id, role_id=sysadmin_role.id,
-                created_by=superadmin.id, updated_by=superadmin.id,
-            ))
-
-        # --- Standard chart of accounts code combinations (idempotent) ---
-        if structure is not None:
-            standard = [
-                {1: "0100", 2: "OPER", 3: "000", 4: "1000", 5: "0000", 6: "NONE"},  # Operating cash
-                {1: "0100", 2: "RESV", 3: "000", 4: "1010", 5: "0000", 6: "NONE"},  # Reserve cash
-                {1: "0100", 2: "OPER", 3: "000", 4: "1100", 5: "0000", 6: "NONE"},  # Assessments receivable
-                {1: "0100", 2: "OPER", 3: "000", 4: "2000", 5: "0000", 6: "NONE"},  # AP - operating
-                {1: "0100", 2: "RESV", 3: "000", 4: "2000", 5: "0000", 6: "NONE"},  # AP - reserve
-                {1: "0100", 2: "OPER", 3: "000", 4: "4000", 5: "0000", 6: "NONE"},  # Assessment income
-                {1: "0100", 2: "OPER", 3: "100", 4: "5000", 5: "0000", 6: "NONE"},  # Landscaping expense
-                {1: "0100", 2: "OPER", 3: "200", 4: "5100", 5: "0000", 6: "NONE"},  # Utilities expense
-                {1: "0100", 2: "RESV", 3: "000", 4: "6000", 5: "0000", 6: "NONE"},  # Reserve funding
-            ]
-            for seg in standard:
-                try:
-                    create_combination(db, structure, tenant.id, seg, created_by=superadmin.id)
-                except Exception:
-                    pass  # already exists
 
         # --- Demo masters: vendor + bank + bank account (idempotent) ---
-        vendor = db.execute(
-            select(ApSupplier).where(
-                ApSupplier.tenant_id == tenant.id, ApSupplier.vendor_number == "V-0001"
-            )
-        ).scalar_one_or_none()
-        if vendor is None:
-            vendor = ApSupplier(
-                tenant_id=tenant.id, vendor_number="V-0001", name="GreenScape Landscaping LLC",
-                payment_terms="NET30", email="ar@greenscape.example",
-                created_by=superadmin.id, updated_by=superadmin.id,
-            )
-            db.add(vendor)
-
+        # Bank and operating account
         bank = db.execute(
             select(ApBank).where(
                 ApBank.tenant_id == tenant.id, ApBank.routing_number == "021000021"
@@ -189,26 +131,20 @@ def main() -> int:
                 account_number="1234567890", account_type="CHECKING",
                 created_by=superadmin.id, updated_by=superadmin.id,
             ))
-
-        # --- Approval hierarchy for AP invoices (single level → SYSADMIN) ---
-        ap_hier = db.execute(
-            select(ApprovalHierarchy).where(
-                ApprovalHierarchy.tenant_id == tenant.id,
-                ApprovalHierarchy.document_type == "AP_INVOICE",
+            
+        # Vendor
+        vendor = db.execute(
+            select(ApSupplier).where(
+                ApSupplier.tenant_id == tenant.id, ApSupplier.vendor_number == "V-0001"
             )
         ).scalar_one_or_none()
-        if ap_hier is None:
-            ap_hier = ApprovalHierarchy(
-                tenant_id=tenant.id, name="AP Invoice Approvals", document_type="AP_INVOICE",
+        if vendor is None:
+            vendor = ApSupplier(
+                tenant_id=tenant.id, vendor_number="V-0001", name="GreenScape Landscaping LLC",
+                payment_terms="NET30", email="ar@greenscape.example",
                 created_by=superadmin.id, updated_by=superadmin.id,
             )
-            db.add(ap_hier)
-            db.flush()
-            db.add(ApprovalRule(
-                tenant_id=tenant.id, hierarchy_id=ap_hier.id, level_num=1,
-                min_amount=0, max_amount=None, approver_role_id=sysadmin_role.id,
-                created_by=superadmin.id, updated_by=superadmin.id,
-            ))
+            db.add(vendor)
 
         # --- A few demo homeowners (idempotent) ---
         for i in range(1, 4):

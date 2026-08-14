@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Numeric,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -47,6 +49,8 @@ class Tenant(Base, TimestampMixin):
     city: Mapped[str | None] = mapped_column(String(120))
     state: Mapped[str | None] = mapped_column(String(60))
     postal_code: Mapped[str | None] = mapped_column(String(20))
+    monthly_dues: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    kind: Mapped[str | None] = mapped_column(String(60))
     # Single functional currency — fixed to USD per mandate (no multi-currency).
     functional_currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
 
@@ -64,6 +68,7 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(200))
+    job_title: Mapped[str | None] = mapped_column(String(200))
     is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Force a password change on next login (set when an admin creates the account).
