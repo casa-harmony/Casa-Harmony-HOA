@@ -147,10 +147,7 @@ def provision_tenant(
     # 5. Budget control settings row
     budget_ctrl = BudgetControlSettings(
         tenant_id=tenant.id,
-        control_level="ABSOLUTE",
-        tolerance_percent=0.0,
-        tolerance_amount=0.0,
-        funds_check_level="ADVISORY",
+        mode="ADVISORY",
         created_by=actor_id,
         updated_by=actor_id,
     )

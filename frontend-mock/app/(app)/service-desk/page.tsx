@@ -343,10 +343,10 @@ function TicketDrawer({
 
   async function assignVendor() {
     if (!vendorId) return;
-    await mutate(`/service-desk/tickets/${ticket.id}/assign-vendor`, "POST", {
+    await mutate(`/service-desk/tickets/${ticket.id}`, "PATCH", {
       vendor_id: vendorId,
       estimated_cost: estimate ? Number(estimate) : null,
-      actor,
+      status: "IN_PROGRESS",
     });
     setAssigning(false);
     const v = vendors.find((x) => x.id === vendorId);
@@ -355,11 +355,11 @@ function TicketDrawer({
     );
   }
 
-  async function convertToPo() {
+  async function createPo() {
     const po = await mutate(
-      `/service-desk/tickets/${ticket.id}/convert-to-po`,
+      `/service-desk/tickets/${ticket.id}/create-po`,
       "POST",
-      { actor }
+      { code_combination_id: "00000000-0000-0000-0000-000000000000" }
     );
     notify(
       `Purchase order ${po.po_number} raised and submitted for approval. It now appears on the Approvals screen.`
@@ -398,7 +398,7 @@ function TicketDrawer({
               </Select>
             )}
             {ticket.vendor_id && !ticket.po_header_id && (
-              <Button onClick={convertToPo}>
+              <Button onClick={createPo}>
                 Raise purchase order
                 <ArrowRight className="h-4 w-4" />
               </Button>

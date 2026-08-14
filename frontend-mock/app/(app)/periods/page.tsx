@@ -5,6 +5,7 @@ import { useAuth } from "../../providers";
 import { apiFetch, downloadFile } from "@/lib/api";
 import type { AccountingPeriod } from "@/lib/types";
 import { Alert, Badge, Button, Card, Input, Label, Spinner } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 
 const TONE: Record<string, string> = { OPEN: "A", CLOSED: "L", FUTURE: "O" };
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
@@ -31,10 +32,13 @@ export default function PeriodsPage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId]);
 
-  async function act(period: string, verb: "open" | "close" | "reopen") {
+  async function action(period: string, verb: "open" | "close" | "reopen" | "close-year") {
     setBusy(period + verb); setError(null); setMsg(null);
     try {
-      await apiFetch(`/periods/${period}/${verb}`, { method: "POST", token, tenantId: activeTenantId });
+      if (verb === "open") await apiFetch(`/periods/${period}/open`, { method: "POST", token, tenantId: activeTenantId });
+      else if (verb === "close") await apiFetch(`/periods/${period}/close`, { method: "POST", token, tenantId: activeTenantId });
+      else if (verb === "reopen") await apiFetch(`/periods/${period}/reopen`, { method: "POST", token, tenantId: activeTenantId });
+      else await apiFetch(`/periods/year-end-close?year=${period.split('-')[0]}`, { method: "POST", token, tenantId: activeTenantId });
       setMsg(`${period} ${verb === "close" ? "closed" : "opened"}.`); await load();
     } catch (e) { setError(e instanceof Error ? e.message : `${verb} failed`); }
     finally { setBusy(null); }
@@ -52,7 +56,7 @@ export default function PeriodsPage() {
     finally { setBusy(null); }
   }
 
-  return (
+  const content = (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-bold text-slate-800">Period Close & GL Lock-Down</h1>
@@ -126,4 +130,6 @@ export default function PeriodsPage() {
       </Card>
     </div>
   );
+
+  return <ReadinessEmptyState requiredStage="CALENDAR" fallback={content} />;
 }

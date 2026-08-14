@@ -86,6 +86,65 @@ function route<T>(c: Ctx): T {
     }
     return ok(TENANTS);
   }
+  
+  if (seg[0] === "tenants" && seg[2] === "readiness") {
+    // Return a mocked readiness state for the demo
+    const stages = [
+      {
+        id: "IDENTITY",
+        label: "Identity & Access",
+        completed: true,
+        missing: [],
+        next_action_label: "Add an administrator",
+        next_action_route: "/settings/users",
+      },
+      {
+        id: "LEDGER",
+        label: "General Ledger",
+        completed: true,
+        missing: [],
+        next_action_label: "Configure Chart of Accounts",
+        next_action_route: "/accounting/coa",
+      },
+      {
+        id: "CALENDAR",
+        label: "Fiscal Calendar",
+        completed: true,
+        missing: [],
+        next_action_label: "Open fiscal period",
+        next_action_route: "/accounting/periods",
+      },
+      {
+        id: "MASTERS",
+        label: "Master Data",
+        completed: true,
+        missing: [],
+        next_action_label: "Configure master data",
+        next_action_route: "/settings/masters",
+      },
+      {
+        id: "SUBLEDGER",
+        label: "Subledger Setup",
+        completed: true,
+        missing: [],
+        next_action_label: "Import homeowners",
+        next_action_route: "/receivables/homeowners",
+      },
+      {
+        id: "LIVE",
+        label: "Production Live",
+        completed: false,
+        missing: ["Tenant is not activated"],
+        next_action_label: "Complete go-live checklist",
+        next_action_route: "/settings/golive",
+      }
+    ];
+    return ok({
+      tenant_id: seg[1],
+      current_stage: "LIVE",
+      stages
+    });
+  }
 
   if (p === "/personas") return ok(PERSONAS);
 
