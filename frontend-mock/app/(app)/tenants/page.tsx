@@ -15,7 +15,11 @@ import {
 
 export default function TenantsPage() {
   const { activeTenantId, setActiveTenant, can } = useAuth();
-  const { data: tenants } = useApi<any[]>("/tenants", []);
+  const [showDemo, setShowDemo] = useState(false);
+  const { data: tenants } = useApi<any[]>(
+    showDemo ? "/tenants?include_demo=true" : "/tenants",
+    []
+  );
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
@@ -31,12 +35,20 @@ export default function TenantsPage() {
         title="Communities (HOAs)"
         description="Every homeowner association on the platform. Each is completely sealed off from the others — this is the top of the multi-tenancy model."
         actions={
-          can("tenant.create") && (
-            <Button onClick={() => setCreating(true)}>
-              <Plus className="h-4 w-4" />
-              New community
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showDemo ? "primary" : "outline"}
+              onClick={() => setShowDemo((v) => !v)}
+            >
+              {showDemo ? "Hide demo communities" : "Show demo communities"}
             </Button>
-          )
+            {can("tenant.create") && (
+              <Button onClick={() => setCreating(true)}>
+                <Plus className="h-4 w-4" />
+                New community
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -83,7 +95,10 @@ export default function TenantsPage() {
                       {t.city}, {t.state}
                     </p>
                   </div>
-                  {isActive && <Badge tone="primary">Viewing</Badge>}
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {t.is_demo && <Badge tone="neutral">Demo</Badge>}
+                    {isActive && <Badge tone="primary">Viewing</Badge>}
+                  </div>
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">{t.kind}</p>
               </div>

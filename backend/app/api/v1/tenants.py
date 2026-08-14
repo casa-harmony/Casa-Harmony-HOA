@@ -18,22 +18,37 @@ router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 @router.get("", response_model=list[TenantOut])
 def list_tenants(
+    include_demo: bool = False,
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_principal),
 ):
-    """SUPERADMIN sees all HOAs; others see only HOAs they are a member of."""
+    """SUPERADMIN sees all HOAs; others see only HOAs they are a member of.
+
+    Either way, demo/sample communities (``is_demo``) are excluded from this
+    listing unless ``include_demo`` is passed — a display toggle on the
+    Communities admin screen, not a security boundary. It has no effect on the
+    topbar community switcher, which is built from the caller's own
+    memberships at login and never calls this endpoint; a staff member who
+    belongs to a demo tenant can still work in it as normal, they just won't
+    see it listed here unless they ask to.
+    """
     if principal.is_superadmin:
-        rows = db.execute(select(Tenant).order_by(Tenant.name)).scalars().all()
+        stmt = select(Tenant)
+        if not include_demo:
+            stmt = stmt.where(Tenant.is_demo.is_(False))
+        rows = db.execute(stmt.order_by(Tenant.name)).scalars().all()
         return rows
     # Non-superadmin: restrict to memberships.
     from app.models.identity import Membership
 
-    rows = db.execute(
+    stmt = (
         select(Tenant)
         .join(Membership, Membership.tenant_id == Tenant.id)
         .where(Membership.user_id == principal.user.id, Membership.is_active.is_(True))
-        .order_by(Tenant.name)
-    ).scalars().unique().all()
+    )
+    if not include_demo:
+        stmt = stmt.where(Tenant.is_demo.is_(False))
+    rows = db.execute(stmt.order_by(Tenant.name)).scalars().unique().all()
     return rows
 
 

@@ -22,6 +22,7 @@ class TenantBase(BaseModel):
 class TenantCreate(TenantBase):
     # Optionally bootstrap a default COA structure on creation.
     create_default_coa: bool = True
+    is_demo: bool = False
 
 
 class TenantUpdate(BaseModel):
@@ -35,12 +36,14 @@ class TenantUpdate(BaseModel):
     city: str | None = None
     state: str | None = None
     postal_code: str | None = None
+    is_demo: bool | None = None
 
 
 class TenantOut(TenantBase):
     id: uuid.UUID
     status: str
     functional_currency: str
+    is_demo: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}

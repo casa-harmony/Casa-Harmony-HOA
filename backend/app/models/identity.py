@@ -36,6 +36,9 @@ class Tenant(Base, TimestampMixin):
     slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     legal_name: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    # Sample/demo data — hidden from community lists by default. Not a security
+    # boundary; RLS/membership scoping is unaffected either way.
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Profile
     num_units: Mapped[int | None] = mapped_column(Integer)
     timezone: Mapped[str] = mapped_column(String(64), default="America/New_York")
