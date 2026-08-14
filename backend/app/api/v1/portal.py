@@ -22,7 +22,13 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db, get_elevated_db
 from app.core.deps import get_current_resident
 from app.core.rate_limit import limiter
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    decode_token,
+    hash_password,
+    password_version,
+    verify_password,
+)
 from app.models.documents import DocumentAttachment
 from app.models.identity import Tenant
 from app.models.resident import Resident, ResidentUnit
@@ -30,6 +36,7 @@ from app.models.service_desk import ServiceTicket
 from app.models.subledger import ArHomeowner, ArInvoice, ArReceipt
 from app.core.config import settings
 from app.schemas.resident import (
+    PortalAcceptInvite,
     PortalChangePassword,
     PortalDashboard,
     PortalDocument,
@@ -180,6 +187,28 @@ def portal_reset_password(payload: PortalReset, db: Session = Depends(get_elevat
         resident = otp.verify_challenge(db, payload.challenge_id, payload.code)
     except otp.OtpError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc))
+    resident.password_hash = hash_password(payload.new_password)
+    resident.must_change_password = False
+    db.flush()
+    return {"status": "ok"}
+
+
+@router.post("/accept-invite")
+def portal_accept_invite(payload: PortalAcceptInvite, db: Session = Depends(get_elevated_db)):
+    """Set a password from the one-time link emailed by POST /residents with
+    send_invite=true (mirrors staff /auth/reset-password; single-use via the
+    password-version fingerprint embedded in the token)."""
+    try:
+        claims = decode_token(payload.token)
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired invite link")
+    if claims.get("scope") != "pwreset":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid invite link")
+    resident = db.get(Resident, uuid.UUID(claims["sub"]))
+    if resident is None or not resident.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired invite link")
+    if claims.get("pv") != password_version(resident.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This invite link has already been used")
     resident.password_hash = hash_password(payload.new_password)
     resident.must_change_password = False
     db.flush()

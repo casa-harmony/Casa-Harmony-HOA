@@ -1,6 +1,7 @@
 """Admin: manage resident portal logins (owners & renters) and their unit links."""
 from __future__ import annotations
 
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import Principal, require_active_tenant, require_permission
-from app.core.security import hash_password
+from app.core.security import create_password_reset_token, hash_password
+from app.models.identity import Tenant
 from app.models.resident import Resident, ResidentUnit
 from app.models.subledger import ArHomeowner
 from app.schemas.resident import (
@@ -19,7 +21,7 @@ from app.schemas.resident import (
     ResidentUnitLink,
     ResidentUnitOut,
 )
-from app.services import audit
+from app.services import audit, notifications
 
 router = APIRouter(
     prefix="/residents", tags=["residents"], dependencies=[Depends(require_active_tenant)]
@@ -62,21 +64,37 @@ def create_resident(
     ).scalar_one_or_none()
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "Username already exists in this HOA")
+    if not payload.password and not payload.send_invite:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Must provide password or send_invite")
+    if payload.send_invite and not payload.email:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "An email is required to send an invite")
     if payload.mfa_channel == "SMS" and not payload.phone:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "A phone number is required for SMS verification")
     if payload.mfa_channel == "EMAIL" and not payload.email:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "An email is required for email verification")
+    # An invited resident gets an unusable random hash; the emailed reset
+    # token is bound to its password version, so it dies once they set one.
     r = Resident(
         tenant_id=principal.tenant_id, username=payload.username.lower(),
-        password_hash=hash_password(payload.password), resident_type=payload.resident_type,
+        password_hash=(
+            hash_password(payload.password)
+            if payload.password
+            else hash_password(secrets.token_urlsafe(32))
+        ),
+        resident_type=payload.resident_type,
         full_name=payload.full_name, email=payload.email, phone=payload.phone,
         mfa_channel=payload.mfa_channel,
         created_by=principal.user.id, updated_by=principal.user.id,
     )
     db.add(r)
     db.flush()
+    if payload.send_invite and not payload.password:
+        tenant = db.get(Tenant, principal.tenant_id)
+        token = create_password_reset_token(r.id, r.password_hash)
+        notifications.send_resident_password_invite(r.email, tenant.slug, token)
     audit.record(db, action="CREATE", entity_type="Resident", entity_id=r.id,
                  after={"username": r.username, "type": r.resident_type})
     return _out(db, r)

@@ -9,8 +9,13 @@ from pydantic import BaseModel, Field
 
 # --- Admin: resident management -------------------------------------------
 class ResidentCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     username: str = Field(min_length=3, max_length=60)
-    password: str = Field(min_length=8, max_length=128)
+    # Provide password OR send_invite (emails a one-time set-password link),
+    # matching the admin invite pattern on POST /tenants/{id}/admins.
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    send_invite: bool = False
     full_name: str = Field(min_length=1, max_length=160)
     resident_type: str = Field(default="OWNER", pattern=r"^(OWNER|RENTER)$")
     email: str | None = None
@@ -19,6 +24,8 @@ class ResidentCreate(BaseModel):
 
 
 class ResidentUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     is_active: bool | None = None
 
 
@@ -100,6 +107,15 @@ class PortalForgot(BaseModel):
 class PortalReset(BaseModel):
     challenge_id: uuid.UUID
     code: str = Field(min_length=4, max_length=10)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PortalAcceptInvite(BaseModel):
+    """Consumes the one-time set-password link emailed by POST /residents
+    with send_invite=true (token-based, mirrors staff /auth/reset-password —
+    distinct from the OTP-challenge PortalReset above since an invited
+    resident has no password yet to authenticate a forgot-password request)."""
+    token: str
     new_password: str = Field(min_length=8, max_length=128)
 
 
