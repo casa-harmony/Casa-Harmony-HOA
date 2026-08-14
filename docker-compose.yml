@@ -36,7 +36,9 @@ services:
       # Migrations run as the owner (DDL privileges).
       MIGRATION_DB_URL: postgresql+psycopg://postgres:postgres@postgres:5432/casa_harmony
       SECRET_KEY: "dev_only_change_me_in_production_please_rotate"
-      BACKEND_CORS_ORIGINS: "http://localhost:3000"
+      FIELD_ENCRYPTION_KEY: "w3jaopQ7bXvBn0KgdhGJJRy3EMpyxTFMibnLIJ0lNoI="
+      RUN_SEED: "true"
+      BACKEND_CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
       SUPERADMIN_EMAIL: superadmin@casaharmony.ai
       SUPERADMIN_PASSWORD: "ChangeMe!Superadmin1"
     ports:
