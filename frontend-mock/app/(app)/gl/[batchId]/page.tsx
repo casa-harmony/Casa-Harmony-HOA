@@ -55,13 +55,13 @@ export default function GlBatchReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, activeTenantId, batchId]);
 
-  async function action(verb: "submit" | "approve" | "post") {
-    setBusy(true);
-    setError(null);
+  async function handleAction(verb: "submit" | "approve" | "post") {
+    setBusy(verb); setError(null);
     try {
-      await apiFetch(`/gl/batches/${batchId}/${verb}`, {
-        method: "POST", token, tenantId: activeTenantId,
-      });
+      if (verb === "submit") await apiFetch(`/gl/batches/${batchId}/submit`, { method: "POST", token, tenantId: activeTenantId });
+      else if (verb === "approve") await apiFetch(`/gl/batches/${batchId}/approve`, { method: "POST", token, tenantId: activeTenantId });
+      else await apiFetch(`/gl/batches/${batchId}/post`, { method: "POST", token, tenantId: activeTenantId });
+      setMsg(`Batch successfully ${verb}ed.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : `${verb} failed`);

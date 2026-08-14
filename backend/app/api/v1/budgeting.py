@@ -151,3 +151,15 @@ def export_spread(version_id: uuid.UUID, db: Session = Depends(get_db),
     content = reports.build_budget_spread_workbook(db, p.tenant_id, version_id, _tname(db, p.tenant_id))
     return Response(content=content, media_type=XLSX,
                     headers={"Content-Disposition": 'attachment; filename="budget_spread.xlsx"'})
+
+
+@router.get("/lines", response_model=list[BvARow])
+def budget_lines(db: Session = Depends(get_db),
+                 p: Principal = Depends(require_permission("report.read"))):
+    control = budgeting.get_control(db, p.tenant_id)
+    if not control.controlling_version_id:
+        return []
+    try:
+        return budgeting.budget_vs_actual(db, p.tenant_id, control.controlling_version_id)
+    except BudgetError as exc:
+        _err(exc)

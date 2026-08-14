@@ -48,10 +48,13 @@ export default function VendorDetailPage() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token, activeTenantId, vendorId]);
 
-  async function save(path: string, body: unknown, reset: () => void) {
+  async function save(resource: string, body: unknown, reset: () => void) {
     setBusy(true); setError(null);
     try {
-      await apiFetch(`/vendors/${vendorId}/${path}`, { method: "POST", token, tenantId: activeTenantId, body });
+      if (resource === "sites") await apiFetch(`/vendors/${vendorId}/sites`, { method: "POST", token, tenantId: activeTenantId, body });
+      else if (resource === "contacts") await apiFetch(`/vendors/${vendorId}/contacts`, { method: "POST", token, tenantId: activeTenantId, body });
+      else if (resource === "bank-accounts") await apiFetch(`/vendors/${vendorId}/bank-accounts`, { method: "POST", token, tenantId: activeTenantId, body });
+      else throw new Error("Unknown resource: " + resource);
       setModal(""); reset(); await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");

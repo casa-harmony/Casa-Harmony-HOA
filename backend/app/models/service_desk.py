@@ -43,3 +43,17 @@ class ServiceTicket(Base, TenantMixin, TimestampMixin):
     po_header_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("po_headers.id", ondelete="SET NULL")
     )
+
+
+class ServiceTicketComment(Base, TenantMixin, TimestampMixin):
+    __tablename__ = "service_ticket_comments"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("service_tickets.id", ondelete="CASCADE")
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+

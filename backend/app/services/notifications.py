@@ -138,3 +138,20 @@ def list_for_user(db: Session, tenant_id, user_id, role_codes, unread_only=False
     if unread_only:
         stmt = stmt.where(Notification.is_read.is_(False))
     return db.execute(stmt.order_by(Notification.created_at.desc())).scalars().all()
+
+
+def mark_all_read(db: Session, tenant_id, user_id, role_codes):
+    from sqlalchemy import update
+    stmt = (
+        update(Notification)
+        .where(
+            Notification.tenant_id == tenant_id,
+            (Notification.recipient_user_id == user_id)
+            | (Notification.recipient_role_code.in_(list(role_codes)) if role_codes else False),
+            Notification.is_read.is_(False)
+        )
+        .values(is_read=True)
+    )
+    db.execute(stmt)
+    db.flush()
+

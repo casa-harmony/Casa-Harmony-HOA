@@ -13,11 +13,11 @@ from app.core.database import get_db
 from app.core.deps import Principal, require_active_tenant, require_permission
 from app.models.identity import Tenant
 from app.models.procurement import PoHeader
-from app.models.service_desk import ServiceTicket
+from app.models.service_desk import ServiceTicket, ServiceTicketComment
 from app.models.workflow import ApprovalRequest
 from app.schemas.approvals import ActIn
 from app.schemas.procurement import PoOut
-from app.schemas.service_desk import TicketCreate, TicketOut, TicketToPo, TicketUpdate
+from app.schemas.service_desk import TicketCreate, TicketOut, TicketToPo, TicketUpdate, TicketCommentIn, TicketCommentOut
 from app.services import approvals, audit
 from app.services.distributions import DistributionError
 from app.services.po_service import create_po
@@ -44,6 +44,15 @@ def list_tickets(
         select(ServiceTicket).where(ServiceTicket.tenant_id == principal.tenant_id)
         .order_by(ServiceTicket.created_at.desc())
     ).scalars().all()
+
+
+@router.get("/tickets/{ticket_id}", response_model=TicketOut)
+def get_ticket(
+    ticket_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("ticket.manage")),
+):
+    return _get_ticket(db, ticket_id, principal.tenant_id)
 
 
 @router.post("/tickets", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
@@ -192,3 +201,24 @@ def export_cost_summary(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="service_requests.xlsx"'},
     )
+
+
+@router.get("/tickets/{ticket_id}/comments", response_model=list[TicketCommentOut])
+def get_comments(ticket_id: uuid.UUID, db: Session = Depends(get_db),
+                 p: Principal = Depends(require_permission("service.read"))):
+    _get_ticket(db, ticket_id, p.tenant_id)
+    rows = db.execute(select(ServiceTicketComment).where(ServiceTicketComment.ticket_id == ticket_id).order_by(ServiceTicketComment.created_at)).scalars().all()
+    # Note: author and role are normally joined from users/roles. For the mock compatibility:
+    out = []
+    for r in rows:
+        out.append({"id": r.id, "author": "Staff", "role": "Property Manager", "at": r.created_at, "body": r.body})
+    return out
+
+@router.post("/tickets/{ticket_id}/comments", response_model=TicketCommentOut)
+def post_comment(ticket_id: uuid.UUID, payload: TicketCommentIn, db: Session = Depends(get_db),
+                 p: Principal = Depends(require_permission("service.read"))):
+    _get_ticket(db, ticket_id, p.tenant_id)
+    c = ServiceTicketComment(tenant_id=p.tenant_id, ticket_id=ticket_id, author_id=p.user.id, body=payload.body)
+    db.add(c)
+    db.flush()
+    return {"id": c.id, "author": "Staff", "role": "Property Manager", "at": c.created_at, "body": c.body}

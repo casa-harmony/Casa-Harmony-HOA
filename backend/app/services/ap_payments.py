@@ -164,3 +164,11 @@ def batch_pay(db, *, tenant_id, payment_method_id, payment_date, due_before, cre
         )
         payments.append(payment)
     return payments
+
+
+def clear_payment(db, payment: ApPayment, created_by=None):
+    if payment.status != "CREATED":
+        raise PaymentError("Can only clear a CREATED payment")
+    payment.status = "CLEARED"
+    db.flush()
+    return payment

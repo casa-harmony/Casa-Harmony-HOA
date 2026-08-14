@@ -61,7 +61,7 @@ export default function MigrationPage() {
             variant="ghost"
             size="sm"
             onClick={async () => {
-              await mutate(`/migration/${b.id}/rollback`, "POST");
+              await mutate(`/migration/batches/${b.id}/rollback`, "POST");
               setFlash(`${b.entity} import rolled back — every row from that batch has been removed.`);
               setTimeout(() => setFlash(null), 5000);
             }}

@@ -54,3 +54,11 @@ def mark_read(notification_id: uuid.UUID, db: Session = Depends(get_db),
     n.is_read = True
     db.flush()
     return n
+
+
+@router.post("/read-all")
+def mark_all_read(db: Session = Depends(get_db),
+                  principal: Principal = Depends(require_active_tenant)):
+    notif_svc.mark_all_read(db, principal.tenant_id, principal.user.id, _role_codes(db, principal))
+    return {"status": "ok"}
+

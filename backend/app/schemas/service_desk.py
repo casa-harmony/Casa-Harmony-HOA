@@ -46,3 +46,17 @@ class TicketToPo(BaseModel):
     """Integration hook: spawn a PO from a ticket's estimated cost."""
     code_combination_id: uuid.UUID  # expense account (Fund mandatory)
     item_description: str | None = None
+
+
+class TicketCommentIn(BaseModel):
+    body: str = Field(min_length=1)
+
+class TicketCommentOut(BaseModel):
+    id: uuid.UUID
+    author: str
+    role: str
+    at: datetime
+    body: str
+
+    model_config = {"from_attributes": True}
+
