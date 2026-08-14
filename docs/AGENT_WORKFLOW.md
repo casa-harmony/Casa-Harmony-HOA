@@ -104,39 +104,64 @@ narrow — a subagent with a vague brief burns more tokens than it saves.
 
 ---
 
-## Running it in the terminal
+## Running it: Freebuff
 
-Any of these work; all read `AGENTS.md` and run locally:
+[Freebuff](https://freebuff.com/cli) (CodebuffAI) is the free terminal agent
+this project delegates to. Node 18+:
 
-| Tool | Notes |
-|---|---|
-| [OpenCode](https://github.com/sst/opencode) | Terminal agent, provider-agnostic, has a subagent concept |
-| [Aider](https://aider.chat) | Strong git integration; pairs well with local models |
-| [Goose](https://github.com/block/goose) | Extensible, MCP-native |
-| [Cline](https://github.com/cline/cline) | Editor-based rather than terminal |
+```bash
+npm install -g freebuff
+cd <repo>
+freebuff
+```
 
-Model hosting, cheapest first:
+No API key. It runs open-weight models (DeepSeek V4, MiMo 2.5, MiniMax M3) and
+is ad-funded, with ads between agent turns.
 
-- **Ollama** or **llama.cpp** — fully local, no per-token cost, no data leaves
-  the machine. Practical coding models at time of writing: Qwen3-Coder,
-  DeepSeek-V3, GLM-4.6, Devstral. A 30B-class model quantised to 4-bit needs
-  roughly 24 GB of RAM to be usable.
-- **OpenRouter free tier** — no local hardware needed, but prompts leave your
-  machine. Do not point it at `.env` or customer data.
+### The budget is sessions, not tokens
 
-> Before committing to a local setup, check what the machine can actually hold.
-> A model too large to run well produces plausible-looking wiring with subtly
-> wrong field names, which costs more to review than it saved.
+Roughly **5–6 sessions per day, one hour each**. That single fact should shape
+how work is handed to it:
+
+- **One task per session, sized to finish inside an hour.** A session that ends
+  mid-task is a session wasted — there is no partial credit.
+- **Write the brief before starting the session.** Exploration burns the clock
+  at the same rate as editing. Name the files, the endpoint, and the check.
+- **Front-load context.** `AGENTS.md` plus the exact paths beat "figure out how
+  this works."
+- **Batch by theme.** Four screens in the same module share context; four
+  unrelated screens re-derive it four times.
+
+Freebuff descends from Codebuff, which reads a repo-root `knowledge.md` — this
+repo has one, pointing at `AGENTS.md`, so the hard rules load either way.
+
+### Never paste credentials into it
+
+Prompts and file contents go to a third-party service running third-party
+models, and the product is ad-funded. This repo is a financial system holding
+resident PII under CCPA obligations. So:
+
+- **Never** let it read `backend/.env`, `frontend-mock/.env.local`, Neon
+  connection strings, the Cloudinary secret, `SECRET_KEY`, or
+  `FIELD_ENCRYPTION_KEY`.
+- **Never** paste a production database dump, resident records, or real
+  homeowner data into a prompt.
+- Keep it to source code, schemas, and synthetic fixtures. All of that is
+  already safe to share — the secrets are what is not.
+
+If a task genuinely needs a live database, it is not a task to delegate.
 
 ## The loop
 
-1. **Plan** (frontier) — break work into single-screen or single-module tasks
-   with a stated mechanical check.
-2. **Execute** (local/free) — one task per agent run, one commit each.
-3. **Verify** (mechanical) — `tsc --noEmit`, pytest, and
+1. **Plan** (frontier) — break work into single-session tasks with a stated
+   mechanical check.
+2. **Execute** (Freebuff) — one task per session, one commit each.
+3. **Verify** (mechanical) — `tsc --noEmit`,
+   `node scripts/check-endpoints.mjs`, pytest, and
    `scripts/check_tenant_isolation.py` when data access changed.
-4. **Review** (frontier) — every diff, against the hard rules.
+4. **Review** (frontier) — every diff, against the hard rules in `AGENTS.md`.
 5. **Merge** into `develop`.
 
 Steps 3 and 4 are not optional. Delegation is only cheaper than doing the work
-directly if the verification is real.
+directly if the verification is real — and with a session budget, a diff that
+has to be redone costs a whole hour, not a few cents.
