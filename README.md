@@ -49,9 +49,10 @@ casa-harmony/
 │   ├── scripts/seed.py    # idempotent seed (superadmin, demo HOA + COA)
 │   ├── tests/             # pytest (RLS isolation, KFF, MFA, PCI, CCPA, subledger)
 │   └── requirements.txt
-├── frontend/              # Next.js 15 app (login, tenant switch, dashboard, COA config UI)
+├── frontend-mock/         # Next.js 16 app — the live frontend (login, tenant switch,
+│                          #   dashboard, COA config UI, resident portal)
 ├── infra/                 # Postgres init (restricted role), nginx TLS sample
-├── docker-compose.yml     # Postgres + backend + frontend
+├── docker-compose.yml     # Postgres + backend + frontend-mock
 └── docs/                  # SCHEMA.md, COMPLIANCE.md, SECURITY.md
 ```
 
@@ -121,11 +122,14 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 ### 3. Frontend
 
 ```bash
-cd frontend
+cd frontend-mock
 npm install
-cp .env.example .env.local       # NEXT_PUBLIC_API_BASE=http://localhost:8000/api/v1
+cp .env.example .env.local       # NEXT_PUBLIC_DATA_MODE=live, NEXT_PUBLIC_API_BASE=http://localhost:8000/api/v1
 npm run dev                      # http://localhost:3000
 ```
+
+`NEXT_PUBLIC_DATA_MODE` defaults to `mock` (a self-contained in-browser demo,
+no backend needed) — set it to `live` to talk to the FastAPI backend above.
 
 ### 4. Tests
 

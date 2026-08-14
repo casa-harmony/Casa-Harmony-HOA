@@ -3,6 +3,11 @@
 A plain-English guide to what this product is, who uses it, how the code is
 organised, and what the `frontend-mock` demo actually does today.
 
+> **Note:** this predates the pivot where `frontend-mock/` became the live
+> product frontend and `frontend/` (the original client delivery) was
+> retired — see [`AGENTS.md`](../AGENTS.md). Treat any claim below that
+> `frontend/` is "the real UI" as historical.
+
 ---
 
 ## Part 1 — The 5-minute version
@@ -93,8 +98,8 @@ station along it.
 ```
 casa-harmony/
 ├── backend/         FastAPI + PostgreSQL — the real system (complete)
-├── frontend/        Next.js 15 app — the real UI, talks to the backend
-├── frontend-mock/   A COPY of frontend with fake data — the client demo
+├── frontend-mock/   Next.js 16 app — now the live UI, wired to the real backend
+├── frontend/        Dead: the original client-delivered demo, kept for reference only
 ├── docs/            Schema, security, compliance, deployment notes
 ├── infra/           nginx, postgres, AWS config
 └── docker-compose.yml

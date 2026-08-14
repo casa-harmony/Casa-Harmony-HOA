@@ -1,5 +1,12 @@
 # Deployment
 
+> **The current, actively maintained deploy guide is
+> [`docs/RAILWAY.md`](RAILWAY.md) + [`docs/DEPLOY_RUNBOOK.md`](DEPLOY_RUNBOOK.md)
+> — start there.** This document describes an alternate path (Render / AWS)
+> that still works if you specifically want it, kept for reference. Either
+> way, the live frontend is **`frontend-mock/`** — `frontend/` is the
+> client-delivered original and must never be deployed.
+
 Casa Harmony is a split stack: **FastAPI backend** + **PostgreSQL** + **Next.js frontend**.
 The backend is a long-running process that uses persistent DB connections, PostgreSQL
 **Row-Level Security** (per-request session GUCs + a restricted DB role), Alembic
@@ -26,7 +33,9 @@ service for you — you only paste the DB/secret values.
    - `MIGRATION_DB_URL` format: `postgresql+psycopg://<owner>:<pw>@<host>:5432/neondb?sslmode=require`
      (Neon gives `postgresql://…` — add `+psycopg`).
    - The container binds Render's injected `$PORT` automatically.
-3. **Frontend — Vercel**: import `./frontend`, set
+3. **Frontend — Vercel**: import `./frontend-mock` (the live frontend — **not**
+   `./frontend`, which is the dead client-delivered original), set
+   `NEXT_PUBLIC_DATA_MODE=live` and
    `NEXT_PUBLIC_API_BASE=https://<service>.onrender.com/api/v1`, deploy. Then set
    `BACKEND_CORS_ORIGINS` (on Render) to the Vercel URL and redeploy the backend.
 4. **Demo data** (optional) — Render → service → **Shell**:
@@ -45,14 +54,14 @@ Prefer AWS? `infra/aws/` is a Terraform module that stands up one Free‑Tier
 Caddy/HTTPS — `terraform apply` and you're live (~$0 for 12 months). See
 [`infra/aws/README.md`](../infra/aws/README.md).
 
-## Recommended (production): Render (one platform)
+## Alternative (production): Render (one platform)
 
 | Component | Service | Notes |
 |---|---|---|
 | Database | Render PostgreSQL (or Neon / Supabase) | Real Postgres → RLS + `casa_app` role work as-is |
 | Backend | Render Web Service (Docker, `backend/Dockerfile`) | Runs migrations + seed on start; binds `$PORT` |
 | Nightly posting | Render Cron Job **or** `ENABLE_SCHEDULER=true` | Cron: `python -m scripts.run_nightly_posting` @ `0 2 * * *` |
-| Frontend | Render Static/Node Service **or** Vercel | Next.js 15 |
+| Frontend | Render Static/Node Service **or** Vercel | Next.js 16, `frontend-mock/` |
 
 ### Why not Vercel for the backend
 Vercel is excellent for the **Next.js frontend**, but its serverless functions don't suit

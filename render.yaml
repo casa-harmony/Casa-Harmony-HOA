@@ -12,7 +12,9 @@
 #   2. Set POSTGRES_* to the casa_app role and MIGRATION_DB_URL to the owner role
 #      (prefix the owner URL with postgresql+psycopg:// and keep ?sslmode=require).
 #
-# Frontend: deploy ./frontend on Vercel with
+# Frontend: deploy ./frontend-mock on Vercel (the live frontend — not
+#   ./frontend, which is the dead client-delivered original) with
+#   NEXT_PUBLIC_DATA_MODE=live and
 #   NEXT_PUBLIC_API_BASE=https://<this-service>.onrender.com/api/v1
 # then set BACKEND_CORS_ORIGINS below to the Vercel URL and redeploy.
 

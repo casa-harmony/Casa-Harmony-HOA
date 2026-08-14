@@ -2,6 +2,10 @@
 
 Version 1.0 · Owner: QA / Engineering · Applies to MVP (Grok Prompts 1–3)
 
+> For current deploy specifics see [`docs/RAILWAY.md`](RAILWAY.md) +
+> [`docs/DEPLOY_RUNBOOK.md`](DEPLOY_RUNBOOK.md). The live frontend is
+> **`frontend-mock/`** — `frontend/` is the dead client-delivered original.
+
 ## 1. Purpose & scope
 
 This document defines how Casa Harmony AI — a multi-tenant HOA Service Desk + ERP
@@ -58,11 +62,11 @@ the smoke-level performance checks defined here.
 
 | Env | Backend | DB | Frontend | Purpose |
 |---|---|---|---|---|
-| Local | uvicorn / `docker compose up` | Docker Postgres 16 (port 55432 in tests) | `next dev` / build | Dev + automated tests |
-| Staging | Render web service | Managed Postgres (Render/Neon) | Vercel/Render | UAT, joint testing |
+| Local | uvicorn / `docker compose up` | Docker Postgres (local, per AGENTS.md) | `next dev` / build | Dev + automated tests |
+| Staging | Railway service (see `docs/RAILWAY.md`) | Neon (RLS-enforced) | Railway service | UAT, joint testing |
 
 DB connects as the restricted `casa_app` role so **RLS is always enforced**; migrations
-run as the owner via `MIGRATION_DB_URL` (see `docs/DEPLOYMENT.md`).
+run as the owner via `MIGRATION_DB_URL` (see `docs/DEPLOY_RUNBOOK.md`).
 
 ## 6. Test data (seed baseline)
 
@@ -133,14 +137,17 @@ Each script row: **ID · Priority · Role · Preconditions · Steps · Expected 
 ## 12. Automated regression — how to run
 
 ```bash
-# Postgres (test): docker run ... postgres:16-alpine on host port 55432
-cd backend && source .venv/bin/activate
-POSTGRES_HOST=localhost POSTGRES_PORT=55432 POSTGRES_USER=casa_app \
-POSTGRES_PASSWORD=casa_app_pwd POSTGRES_DB=casa_harmony SECRET_KEY=test \
-OTP_RESEND_SECONDS=0 \
-pytest -q tests/   # OTP_RESEND_SECONDS=0 disables the resend throttle for back-to-back test logins
-# Frontend type/build check
-cd ../frontend && npm run build
+# Postgres (test): docker compose up postgres (see AGENTS.md), local, not Neon.
+cd backend
+DATABASE_URL="postgresql+psycopg://casa_app:casa_app_pwd@localhost:5432/casa_harmony" \
+MIGRATION_DB_URL="postgresql+psycopg://postgres:postgres@localhost:5432/casa_harmony" \
+./.venv/bin/python -m pytest tests/ -v
+# tests/conftest.py disables the OTP resend cooldown and the login rate
+# limiter for the test process — both would otherwise trip across a run this
+# size; production behavior is unaffected.
+# Frontend type/build check (frontend-mock/, not frontend/ — see banner above)
+cd ../frontend-mock && ./node_modules/.bin/tsc --noEmit && npm run build
 ```
 
-Current baseline: **backend 18/18 passing**, frontend build clean (17 routes).
+Current baseline: **backend 150/150 passing**. Treat exact counts as a
+point-in-time snapshot — confirm against a live run, not this document.

@@ -43,11 +43,15 @@ services:
       - "8000:8000"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend-mock
+      # NEXT_PUBLIC_* must be build args, not runtime env vars — Next.js
+      # inlines them into the static bundle at build time.
+      args:
+        NEXT_PUBLIC_API_BASE: "http://localhost:8000/api/v1"
+        NEXT_PUBLIC_DATA_MODE: "live"
     depends_on:
       - backend
-    environment:
-      NEXT_PUBLIC_API_BASE: "http://localhost:8000/api/v1"
     ports:
       - "3000:3000"
 
