@@ -77,6 +77,18 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_FROM_NUMBER: str = ""
 
+    # --- Document storage (Cloudinary) ---
+    # Uploaded invoices/contracts/reserve studies. Accepts either the three
+    # discrete values or one CLOUDINARY_URL (cloudinary://key:secret@cloud) —
+    # same pattern as the frontend review widget's credentials. If none are
+    # set, documents fall back to local disk (DOCS_DIR), which does not
+    # survive a redeploy — fine for a laptop, not for a hosted deployment.
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+    CLOUDINARY_URL: str = ""
+    CLOUDINARY_FOLDER: str = "casa-harmony/documents"
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def _split_cors(cls, v):
