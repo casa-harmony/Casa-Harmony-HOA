@@ -3,8 +3,13 @@
 Public login issues a scoped ``resident`` token carrying the HOA, so RLS binds to
 that tenant automatically. Every endpoint further restricts data to the units the
 resident is actually linked to — a resident can never see another unit or HOA.
+
+Note: no ``from __future__ import annotations`` here on purpose. With that
+import, every annotation becomes a string (ForwardRef), and FastAPI cannot
+resolve those through slowapi's rate-limit wrapper — the body models on the
+rate-limited endpoints degrade into ``Query`` parameters and OpenAPI generation
+crashes. ``auth.py`` is in the same boat; keep it that way.
 """
-from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
