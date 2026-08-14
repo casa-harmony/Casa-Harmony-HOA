@@ -5,3 +5,6 @@ __pycache__/
 .next/
 dist/
 *.pyc
+
+# Local Claude Code state (machine-specific)
+.claude/settings.local.json
