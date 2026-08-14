@@ -92,6 +92,12 @@ def test_mfa_enroll_and_enforced_login():
     assert created.status_code == 201, created.text
 
     utoken = _login(email, "Passw0rd!23").json()["access_token"]
+    # A freshly created user carries must_change_password=True; clear it
+    # before exercising protected endpoints (matches real client behavior).
+    cp = client.post("/api/v1/auth/change-password", headers=_h(utoken),
+                     json={"current_password": "Passw0rd!23", "new_password": "Passw0rd!24"})
+    assert cp.status_code == 200, cp.text
+
     enroll = client.post("/api/v1/auth/mfa/enroll", headers=_h(utoken))
     assert enroll.status_code == 200
     secret = enroll.json()["secret"]
@@ -102,8 +108,8 @@ def test_mfa_enroll_and_enforced_login():
     assert verify.status_code == 200 and verify.json()["mfa_enabled"] is True
 
     # Login now requires the second factor.
-    assert _login(email, "Passw0rd!23").status_code == 401
-    good = _login(email, "Passw0rd!23", mfa_code=pyotp.TOTP(secret).now())
+    assert _login(email, "Passw0rd!24").status_code == 401
+    good = _login(email, "Passw0rd!24", mfa_code=pyotp.TOTP(secret).now())
     assert good.status_code == 200, good.text
 
 

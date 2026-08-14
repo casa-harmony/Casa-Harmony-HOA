@@ -122,9 +122,24 @@ def test_portal_pay_reduces_balance():
     home = client.get("/api/v1/portal/units", headers=_ph(o1)).json()[0]["homeowner_id"]
     invs = client.get(f"/api/v1/portal/units/{home}/invoices", headers=_ph(o1)).json()
     target = next(i for i in invs if float(i["balance"]) > 0)
-    pay = client.post("/api/v1/portal/pay", headers=_ph(o1),
-                      json={"invoice_id": target["id"], "amount": target["balance"]})
-    assert pay.status_code == 201, pay.text
+
+    # Direct pay is disabled by default (ab48396) — a resident must not be
+    # able to clear their own balance without a real payment settling it.
+    blocked = client.post("/api/v1/portal/pay", headers=_ph(o1),
+                          json={"invoice_id": target["id"], "amount": target["balance"]})
+    assert blocked.status_code == 403, blocked.text
+
+    # The real path: hosted checkout, confirmed by the provider's webhook.
+    client.put("/api/v1/gateway/config", headers=_ah(admin, tid), json={
+        "provider": "MOCK", "active": True, "webhook_secret": "whsec_test"})
+    co = client.post("/api/v1/portal/pay/checkout", headers=_ph(o1),
+                     json={"invoice_id": target["id"], "amount": target["balance"]})
+    assert co.status_code == 200, co.text
+    ref = co.json()["txn_ref"]
+    wh = client.post(f"/api/v1/gateway/webhook/{tid}",
+                     json={"event_type": "payment_succeeded", "txn_ref": ref, "signature": "whsec_test"})
+    assert wh.status_code == 200 and wh.json()["status"] == "SUCCEEDED"
+
     after = client.get(f"/api/v1/portal/units/{home}/invoices", headers=_ph(o1)).json()
     updated = next(i for i in after if i["id"] == target["id"])
     assert float(updated["balance"]) == 0.0 and updated["status"] == "PAID"

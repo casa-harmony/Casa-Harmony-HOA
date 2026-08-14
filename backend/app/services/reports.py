@@ -169,12 +169,23 @@ def compute_budget_vs_actual(db: Session, tenant_id: uuid.UUID, period_name: str
     ).all()
     actual_by_cc = {cc.id: (bal, cc) for bal, cc in balances}
 
+    # A budget can exist for a combination with no actual activity yet (e.g. a
+    # future period budgeted in advance) — resolve those combinations too, not
+    # just the ones that happen to have a GlBalance row for this period.
+    cc_lookup = {cc.id: cc for _, cc in balances}
+    missing_cc_ids = set(budgets) - set(cc_lookup)
+    if missing_cc_ids:
+        for cc in db.execute(
+            select(GlCodeCombination).where(GlCodeCombination.id.in_(missing_cc_ids))
+        ).scalars():
+            cc_lookup[cc.id] = cc
+
     rows = []
     ccids = set(budgets) | set(actual_by_cc)
     for ccid in ccids:
         bal_cc = actual_by_cc.get(ccid)
         bud = budgets.get(ccid)
-        cc = bal_cc[1] if bal_cc else None
+        cc = cc_lookup.get(ccid)
         at = cc.account_type if cc else "?"
         if bal_cc:
             net = bal_cc[0].period_net_dr - bal_cc[0].period_net_cr

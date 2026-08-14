@@ -71,6 +71,12 @@ def test_superadmin_can_provision_tenants_and_rls_isolation():
     assert {mm["tenant_id"] for mm in admin["memberships"]} == {tid1}
     atoken = admin["access_token"]
 
+    # A freshly created user carries must_change_password=True; clear it
+    # before exercising protected endpoints (matches real client behavior).
+    cp = client.post("/api/v1/auth/change-password", headers=_auth(atoken),
+                     json={"current_password": "Passw0rd!23", "new_password": "Passw0rd!24"})
+    assert cp.status_code == 200, cp.text
+
     # Allowed in tenant 1.
     ok = client.get("/api/v1/coa/structures", headers=_auth(atoken, tid1))
     assert ok.status_code == 200 and len(ok.json()) == 1

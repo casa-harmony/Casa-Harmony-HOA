@@ -79,7 +79,9 @@ def main() -> int:
 
     slug = f"isolation-probe-{uuid.uuid4().hex[:8]}"
     r = c.post("/tenants", headers=su,
-               json={"name": f"Isolation Probe {slug[-8:]}", "slug": slug})
+               json={"name": f"Isolation Probe {slug[-8:]}", "slug": slug,
+                     "admin_email": f"admin-{slug}@example.com",
+                     "admin_password": uuid.uuid4().hex + "Aa1!"})
     if r.status_code not in (200, 201):
         print(f"{FAIL} could not create foreign tenant: {r.status_code} {r.text[:300]}")
         return 1
