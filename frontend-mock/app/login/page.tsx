@@ -18,8 +18,17 @@ import { NAV_GROUPS, ROLES, permsFor, roleHas } from "@/lib/rbac";
 import { Badge, Button, Card } from "@/components/ui";
 import { ThemeToggle } from "@/components/theme";
 import { cn } from "@/lib/utils";
+import { isLive } from "@/lib/api";
+import LiveLogin from "./live-login";
 
 export default function LoginPage() {
+  // Against a real backend the persona picker is meaningless — credentials
+  // decide who you are. Same route, different door.
+  if (isLive) return <LiveLogin />;
+  return <DemoLogin />;
+}
+
+function DemoLogin() {
   const { signIn } = useAuth();
   const router = useRouter();
   const [personaId, setPersonaId] = useState(PERSONAS[2].id); // HOA Admin

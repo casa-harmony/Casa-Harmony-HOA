@@ -20,10 +20,29 @@ import React, {
 import { PERSONAS, TENANTS, type Persona, type Tenant } from "@/lib/mock-data/seed";
 import { permsFor, ROLES, roleHas, navFor } from "@/lib/rbac";
 import { subscribe } from "@/lib/mock-data/store";
+import { getAuthToken, isLive, setAuthToken, setUnauthorizedHandler } from "@/lib/api";
+import {
+  fetchMe,
+  login as liveLogin,
+  type LiveMembership,
+} from "@/lib/auth-live";
 
 interface Session {
   persona: Persona;
   tenantId: string;
+}
+
+/** The signed-in user in live mode, as the server describes them. */
+interface LiveSession {
+  userId: string;
+  email: string;
+  fullName: string | null;
+  isSuperadmin: boolean;
+  mustChangePassword: boolean;
+  memberships: LiveMembership[];
+  tenantId: string | null;
+  /** Authoritative permission list for the active tenant, from /auth/me. */
+  permissions: string[];
 }
 
 interface AuthState {
@@ -40,6 +59,12 @@ interface AuthState {
   can: (perm: string) => boolean;
   nav: ReturnType<typeof navFor>;
   signIn: (personaId: string, tenantId?: string) => void;
+  /** Live mode only — real credential login. Rejects with ApiError on failure. */
+  signInWithPassword: (
+    email: string,
+    password: string,
+    mfaCode?: string
+  ) => Promise<void>;
   switchPersona: (personaId: string) => void;
   setActiveTenant: (tenantId: string) => void;
   signOut: () => void;
@@ -71,13 +96,16 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 const LS_KEY = "casa_demo_session_v1";
+const LIVE_KEY = "casa_live_session_v1";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const [live, setLive] = useState<LiveSession | null>(null);
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
+    if (isLive) return; // live mode restores from the token instead — see below
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
@@ -94,6 +122,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       /* start signed out */
     }
     setReady(true);
+  }, []);
+
+  /**
+   * Live mode: rehydrate from the stored bearer token. /auth/me both validates
+   * the token and returns the permission list for the active tenant, so a
+   * revoked or expired token lands the user back on /login rather than in a
+   * shell that looks signed in.
+   *
+   * Memberships are cached locally because /auth/me does not return them; they
+   * are only tenant names the user already belongs to, and every request is
+   * still authorised server-side against X-Tenant-Id.
+   */
+  useEffect(() => {
+    if (!isLive) return;
+    let alive = true;
+
+    (async () => {
+      const token = getAuthToken();
+      if (!token) {
+        if (alive) setReady(true);
+        return;
+      }
+      try {
+        const raw = localStorage.getItem(LIVE_KEY);
+        const cached = raw
+          ? (JSON.parse(raw) as { memberships: LiveMembership[]; tenantId: string | null })
+          : { memberships: [], tenantId: null };
+
+        const me = await fetchMe(cached.tenantId);
+        if (!alive) return;
+        setLive({
+          userId: me.user_id,
+          email: me.email,
+          fullName: me.full_name,
+          isSuperadmin: me.is_superadmin,
+          mustChangePassword: me.must_change_password,
+          memberships: cached.memberships,
+          tenantId: cached.tenantId ?? cached.memberships[0]?.tenant_id ?? null,
+          permissions: me.permissions,
+        });
+      } catch {
+        // Bad or expired token — drop it and start signed out.
+        setAuthToken(null);
+        localStorage.removeItem(LIVE_KEY);
+      } finally {
+        if (alive) setReady(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // A 401 from anywhere in the app tears the session down here.
+  useEffect(() => {
+    if (!isLive) return;
+    setUnauthorizedHandler(() => {
+      setLive(null);
+      try {
+        localStorage.removeItem(LIVE_KEY);
+      } catch {
+        /* private browsing */
+      }
+    });
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   // Any write through the demo API bumps the revision so pages re-read.
@@ -127,6 +221,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [persist]
   );
 
+  const persistLive = useCallback((s: LiveSession | null) => {
+    try {
+      if (s) {
+        localStorage.setItem(
+          LIVE_KEY,
+          JSON.stringify({ memberships: s.memberships, tenantId: s.tenantId })
+        );
+      } else {
+        localStorage.removeItem(LIVE_KEY);
+      }
+    } catch {
+      /* private browsing — the session simply won't survive a reload */
+    }
+  }, []);
+
+  const signInWithPassword = useCallback(
+    async (email: string, password: string, mfaCode?: string) => {
+      const res = await liveLogin(email, password, mfaCode);
+      const tenantId = res.memberships[0]?.tenant_id ?? null;
+      // The token is set; ask the server what this user may do in that HOA.
+      const me = await fetchMe(tenantId);
+      const next: LiveSession = {
+        userId: res.user_id,
+        email: res.email,
+        fullName: res.full_name,
+        isSuperadmin: res.is_superadmin,
+        mustChangePassword: res.must_change_password,
+        memberships: res.memberships,
+        tenantId,
+        permissions: me.permissions,
+      };
+      setLive(next);
+      persistLive(next);
+    },
+    [persistLive]
+  );
+
   const switchPersona = useCallback(
     (personaId: string) => {
       const persona = PERSONAS.find((p) => p.id === personaId);
@@ -146,6 +277,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveTenant = useCallback(
     (tenantId: string) => {
+      if (isLive) {
+        // Permissions are per-tenant, so the switch is not complete until the
+        // server has told us what this user may do in the new HOA.
+        setLive((prev) => {
+          if (!prev || !prev.memberships.some((m) => m.tenant_id === tenantId)) {
+            return prev;
+          }
+          const next = { ...prev, tenantId };
+          persistLive(next);
+          fetchMe(tenantId)
+            .then((me) =>
+              setLive((cur) =>
+                cur && cur.tenantId === tenantId
+                  ? { ...cur, permissions: me.permissions }
+                  : cur
+              )
+            )
+            .catch(() => {
+              /* a 401 is handled by the unauthorized handler */
+            });
+          return next;
+        });
+        return;
+      }
       setSession((prev) => {
         if (!prev || !prev.persona.tenant_ids.includes(tenantId)) return prev;
         const next = { ...prev, tenantId };
@@ -153,15 +308,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return next;
       });
     },
-    [persist]
+    [persist, persistLive]
   );
 
   const signOut = useCallback(() => {
+    if (isLive) {
+      setAuthToken(null);
+      setLive(null);
+      persistLive(null);
+      return;
+    }
     setSession(null);
     persist(null);
-  }, [persist]);
+  }, [persist, persistLive]);
 
   const value = useMemo<AuthState>(() => {
+    if (isLive) {
+      const roleCode =
+        live?.memberships.find((m) => m.tenant_id === live.tenantId)?.role_code ?? "";
+      const tenants: Tenant[] = (live?.memberships ?? []).map((m) => ({
+        id: m.tenant_id,
+        name: m.tenant_name,
+        slug: m.tenant_slug,
+      })) as Tenant[];
+      const tenant = tenants.find((t) => t.id === live?.tenantId) ?? null;
+      // The server's permission list is the authority here, not lib/rbac.ts.
+      const permissions = live?.permissions ?? [];
+      const permSet = new Set(permissions);
+
+      return {
+        ready,
+        signedIn: !!live,
+        persona: null,
+        role: roleCode ? ROLES[roleCode] ?? null : null,
+        permissions,
+        tenants,
+        tenant,
+        activeTenantId: live?.tenantId ?? null,
+        revision,
+        can: (perm: string) =>
+          !!live && (live.isSuperadmin || permSet.has(perm)),
+        nav: live ? navFor(roleCode) : [],
+        signIn,
+        signInWithPassword,
+        switchPersona,
+        setActiveTenant,
+        signOut,
+        refresh: () => setRevision((r) => r + 1),
+
+        token: getAuthToken() ?? "",
+        user: live
+          ? {
+              id: live.userId,
+              email: live.email,
+              fullName: live.fullName ?? live.email,
+              isSuperadmin: live.isSuperadmin,
+              mustChangePassword: live.mustChangePassword,
+            }
+          : null,
+        memberships: live?.memberships ?? [],
+        logout: signOut,
+        clearMustChange: () =>
+          setLive((prev) => (prev ? { ...prev, mustChangePassword: false } : prev)),
+      };
+    }
+
     const persona = session?.persona ?? null;
     const roleCode = persona?.role_code ?? "";
     const permissions = persona ? permsFor(roleCode) : [];
@@ -183,6 +394,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       can: (perm: string) => (persona ? roleHas(roleCode, perm) : false),
       nav: persona ? navFor(roleCode) : [],
       signIn,
+      signInWithPassword,
       switchPersona,
       setActiveTenant,
       signOut,
@@ -209,7 +421,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout: signOut,
       clearMustChange: () => {},
     };
-  }, [ready, session, revision, signIn, switchPersona, setActiveTenant, signOut]);
+  }, [
+    ready,
+    session,
+    live,
+    revision,
+    signIn,
+    signInWithPassword,
+    switchPersona,
+    setActiveTenant,
+    signOut,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
