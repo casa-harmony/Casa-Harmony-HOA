@@ -36,8 +36,15 @@ class RoleCreate(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str | None = None
+    job_title: str | None = None
     password: str = Field(min_length=8, max_length=128)
     is_superadmin: bool = False
+
+class UserUpdate(BaseModel):
+    full_name: str | None = None
+    job_title: str | None = None
+    is_active: bool | None = None
+    is_superadmin: bool | None = None
 
 
 class UserOut(BaseModel):
@@ -46,9 +53,13 @@ class UserOut(BaseModel):
     # including anonymized addresses (e.g. ...@anonymized.invalid from CCPA erasure).
     email: str
     full_name: str | None
+    job_title: str | None
     is_superadmin: bool
     is_active: bool
     created_at: datetime
+    
+    # We will expand memberships for GET /users/{id}
+    memberships: list["MembershipOut"] = []
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +67,10 @@ class UserOut(BaseModel):
 class MembershipCreate(BaseModel):
     user_id: uuid.UUID
     role_id: uuid.UUID
+
+class MembershipUpdate(BaseModel):
+    role_id: uuid.UUID | None = None
+    is_active: bool | None = None
 
 
 class MembershipOut(BaseModel):

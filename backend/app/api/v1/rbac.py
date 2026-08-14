@@ -27,8 +27,11 @@ from app.schemas.rbac import (
     PermissionOut,
     RoleCreate,
     RoleOut,
+    RoleOut,
     UserCreate,
+    UserUpdate,
     UserOut,
+    MembershipUpdate,
 )
 from app.services import audit
 
@@ -117,9 +120,12 @@ def list_users(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("user.manage")),
 ):
-    if principal.is_superadmin:
+    tenant_id = request.headers.get("X-Tenant-Id")
+    if principal.is_superadmin and not tenant_id:
+        # Platform-wide listing (explicitly requested by omitting the header)
         return db.execute(select(User).order_by(User.email)).scalars().all()
-    # Tenant admins see users who are members of the active HOA.
+    
+    # Scoped to active tenant
     return db.execute(
         select(User)
         .join(Membership, Membership.user_id == User.id)
@@ -143,6 +149,7 @@ def create_user(
     user = User(
         email=payload.email.lower(),
         full_name=payload.full_name,
+        job_title=payload.job_title,
         hashed_password=hash_password(payload.password),
         is_superadmin=payload.is_superadmin,
         must_change_password=True,  # temp password → force change on first login
@@ -157,6 +164,88 @@ def create_user(
         ip_address=getattr(request.state, "client_ip", None),
     )
     return user
+
+@router.get("/users/{user_id}", response_model=UserOut)
+def get_user(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("user.manage")),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        
+    # Tenant boundary: if not superadmin, ensure user is in the active tenant
+    if not principal.is_superadmin:
+        has_access = any(m.tenant_id == principal.tenant_id for m in user.memberships)
+        if not has_access:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+            
+    return user
+
+
+@router.patch("/users/{user_id}", response_model=UserOut)
+def update_user(
+    user_id: uuid.UUID,
+    payload: UserUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("user.manage")),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        
+    if not principal.is_superadmin:
+        has_access = any(m.tenant_id == principal.tenant_id for m in user.memberships)
+        if not has_access:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+            
+    if payload.is_superadmin is not None:
+        if not principal.is_superadmin:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Only SUPERADMIN can modify SUPERADMIN status")
+        user.is_superadmin = payload.is_superadmin
+        
+    if payload.full_name is not None:
+        user.full_name = payload.full_name
+    if payload.job_title is not None:
+        user.job_title = payload.job_title
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+        
+    db.flush()
+    audit.record(
+        db, action="UPDATE", entity_type="User", entity_id=user.id,
+        after={"email": user.email, "is_active": user.is_active}, tenant_id=principal.tenant_id,
+        ip_address=getattr(request.state, "client_ip", None),
+    )
+    return user
+
+
+@router.post("/users/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_user_password(
+    user_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("user.manage")),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        
+    if not principal.is_superadmin:
+        has_access = any(m.tenant_id == principal.tenant_id for m in user.memberships)
+        if not has_access:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+            
+    # Set must_change_password to True. In a real system, send email here.
+    user.must_change_password = True
+    db.flush()
+    audit.record(
+        db, action="UPDATE", entity_type="User", entity_id=user.id,
+        after={"must_change_password": True}, tenant_id=principal.tenant_id,
+        ip_address=getattr(request.state, "client_ip", None),
+    )
 
 
 # --- Memberships -----------------------------------------------------------
@@ -200,3 +289,67 @@ def grant_membership(
         tenant_id=tenant_id, ip_address=getattr(request.state, "client_ip", None),
     )
     return m
+
+@router.get("/memberships", response_model=list[MembershipOut])
+def list_memberships(
+    user_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("membership.manage")),
+    _tenant: Principal = Depends(require_active_tenant),
+):
+    stmt = select(Membership).where(Membership.tenant_id == principal.tenant_id)
+    if user_id:
+        stmt = stmt.where(Membership.user_id == user_id)
+    return db.execute(stmt).scalars().all()
+
+
+@router.patch("/memberships/{membership_id}", response_model=MembershipOut)
+def update_membership(
+    membership_id: uuid.UUID,
+    payload: MembershipUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("membership.manage")),
+    _tenant: Principal = Depends(require_active_tenant),
+):
+    m = db.get(Membership, membership_id)
+    if not m or m.tenant_id != principal.tenant_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membership not found")
+        
+    if payload.role_id is not None:
+        role = db.get(Role, payload.role_id)
+        if role is None or (role.tenant_id is not None and role.tenant_id != principal.tenant_id):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid role for this HOA")
+        m.role_id = payload.role_id
+        
+    if payload.is_active is not None:
+        m.is_active = payload.is_active
+        
+    db.flush()
+    audit.record(
+        db, action="UPDATE", entity_type="Membership", entity_id=m.id,
+        after={"role_id": str(m.role_id), "is_active": m.is_active}, tenant_id=principal.tenant_id,
+        ip_address=getattr(request.state, "client_ip", None),
+    )
+    return m
+
+
+@router.delete("/memberships/{membership_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_membership(
+    membership_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("membership.manage")),
+    _tenant: Principal = Depends(require_active_tenant),
+):
+    m = db.get(Membership, membership_id)
+    if not m or m.tenant_id != principal.tenant_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Membership not found")
+        
+    db.delete(m)
+    db.flush()
+    audit.record(
+        db, action="DELETE", entity_type="Membership", entity_id=m.id,
+        after={}, tenant_id=principal.tenant_id,
+        ip_address=getattr(request.state, "client_ip", None),
+    )

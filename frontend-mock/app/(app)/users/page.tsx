@@ -35,7 +35,7 @@ export default function UsersPage() {
   const handleCreateUser = async () => {
     if (!form.full_name.trim() || !form.email.trim()) return;
     try {
-      await mutate("/rbac/users", "POST", {
+      await mutate("/users", "POST", {
         full_name: form.full_name,
         email: form.email,
         title: form.title,
@@ -352,17 +352,15 @@ export default function UsersPage() {
           title="Create a user account"
           description="A person is created once with a single login. Assign their primary role and community access."
           footer={
-            <>
-              <Button variant="secondary" onClick={() => setCreating(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={handleCreateUser}
-                disabled={!form.full_name.trim() || !form.email.trim() || busy === "/rbac/users"}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button type="submit" 
+              onClick={handleCreateUser}
+              disabled={!form.full_name.trim() || !form.email.trim() || busy === "/users"}
               >
-                {busy === "/rbac/users" ? "Creating..." : "Create user"}
+              {busy === "/users" ? "Creating..." : "Create user"}
               </Button>
-            </>
+            </div>
           }
         >
           <div className="space-y-4">
