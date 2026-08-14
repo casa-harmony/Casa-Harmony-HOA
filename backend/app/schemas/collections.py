@@ -48,6 +48,8 @@ class InstallmentOut(BaseModel):
 
 
 class PlanCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     homeowner_id: uuid.UUID
     total_amount: Decimal = Field(gt=0)
     installments: int = Field(gt=0, le=60)
@@ -77,6 +79,8 @@ class PayInstallmentIn(BaseModel):
 
 
 class LienCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     homeowner_id: uuid.UUID
     amount: Decimal = Field(gt=0)
     reference: str | None = None

@@ -14,6 +14,8 @@ class RuleIn(BaseModel):
 
 
 class HierarchyCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=120)
     document_type: str = Field(pattern=r"^(PO|AP_INVOICE|CONTRACT|GL_BATCH|WORK_ORDER)$")
     rules: list[RuleIn] = Field(min_length=1)

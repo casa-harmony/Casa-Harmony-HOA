@@ -9,6 +9,8 @@ from pydantic import BaseModel, EmailStr, Field
 
 # --- Payments (PCI) --------------------------------------------------------
 class PaymentMethodCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     card_number: str = Field(min_length=12, max_length=24)
     exp_month: int = Field(ge=1, le=12)
     exp_year: int = Field(ge=2024, le=2100)
@@ -31,6 +33,8 @@ class PaymentMethodOut(BaseModel):
 
 # --- Privacy (CCPA) --------------------------------------------------------
 class DataSubjectRequestCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     request_type: str = Field(pattern=r"^(ACCESS|PORTABILITY|ERASURE)$")
     subject_email: EmailStr
     notes: str | None = None

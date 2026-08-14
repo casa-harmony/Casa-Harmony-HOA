@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class AssetCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=160)
     cost: Decimal = Field(gt=0)
     in_service_date: date
@@ -58,6 +60,8 @@ class ForecastRow(BaseModel):
 
 
 class StudyCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=160)
     study_year: int
     notes: str | None = None
@@ -72,6 +76,8 @@ class StudyOut(BaseModel):
 
 
 class ComponentCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=160)
     category: str | None = None
     fund_value: str = "RESV"

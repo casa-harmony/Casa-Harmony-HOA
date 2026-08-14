@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 
 # --- Sites -----------------------------------------------------------------
 class SiteCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     site_code: str = Field(min_length=1, max_length=40)
     site_name: str | None = None
     pay_site: bool = True
@@ -26,6 +28,8 @@ class SiteOut(SiteCreate):
 
 # --- Contacts --------------------------------------------------------------
 class ContactCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     first_name: str = Field(min_length=1, max_length=80)
     last_name: str = Field(min_length=1, max_length=80)
     title: str | None = None
@@ -42,6 +46,8 @@ class ContactOut(ContactCreate):
 
 # --- Supplier bank accounts (we pay into these) ----------------------------
 class SupplierBankCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     bank_name: str = Field(min_length=1, max_length=200)
     routing_number: str | None = Field(default=None, max_length=9)
     account_number: str = Field(min_length=4, max_length=34)

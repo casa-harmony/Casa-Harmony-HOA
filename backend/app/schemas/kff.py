@@ -9,6 +9,8 @@ from app.models.kff import ACCOUNT_TYPES, MAX_SEGMENTS, SEGMENT_QUALIFIERS
 
 # --- Structures ------------------------------------------------------------
 class StructureCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     structure_code: str = Field(min_length=2, max_length=60, pattern=r"^[A-Z0-9_]+$")
     title: str = Field(min_length=2, max_length=150)
     description: str | None = None
@@ -16,6 +18,8 @@ class StructureCreate(BaseModel):
 
 
 class StructureUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     title: str | None = Field(default=None, min_length=2, max_length=150)
     description: str | None = None
     segment_separator: str | None = Field(default=None, min_length=1, max_length=1)
@@ -37,6 +41,8 @@ class StructureOut(BaseModel):
 
 # --- Value sets ------------------------------------------------------------
 class ValueSetCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     code: str = Field(min_length=1, max_length=60)
     name: str = Field(min_length=1, max_length=150)
     description: str | None = None
@@ -79,6 +85,8 @@ class ValueSetOut(BaseModel):
 
 
 class ValueCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     value: str = Field(min_length=1, max_length=60)
     description: str | None = Field(default=None, max_length=240)
     enabled: bool = True
@@ -115,6 +123,8 @@ class ValueOut(BaseModel):
 
 # --- Segments --------------------------------------------------------------
 class SegmentCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     segment_number: int = Field(ge=1, le=MAX_SEGMENTS)
     name: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=120)
@@ -134,6 +144,8 @@ class SegmentCreate(BaseModel):
 
 
 class SegmentUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str | None = Field(default=None, min_length=1, max_length=120)
     prompt: str | None = Field(default=None, min_length=1, max_length=120)
     segment_number: int | None = Field(default=None, ge=1, le=MAX_SEGMENTS)
@@ -182,6 +194,8 @@ class CrossValidationLineIn(BaseModel):
 
 
 class CrossValidationRuleCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
     error_message: str | None = None
@@ -203,6 +217,8 @@ class CrossValidationRuleOut(BaseModel):
 
 # --- Code combinations -----------------------------------------------------
 class CodeCombinationCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     # Map of segment_number -> value, e.g. {"1": "0100", "2": "OPER", ...}
     segments: dict[int, str]
     allow_posting: bool = True

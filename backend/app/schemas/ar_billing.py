@@ -23,6 +23,8 @@ class PlanLineOut(BaseModel):
 
 
 class PlanCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=120)
     plan_type: str = Field(default="MONTHLY_FEE", pattern=r"^(MONTHLY_FEE|SPECIAL_ASSESSMENT)$")
     lines: list[PlanLineIn] = Field(default_factory=list)

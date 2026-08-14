@@ -14,6 +14,8 @@ class ReceiptLineIn(BaseModel):
 
 
 class ReceiptCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     po_header_id: uuid.UUID
     received_date: date
     needs_inspection: bool = False

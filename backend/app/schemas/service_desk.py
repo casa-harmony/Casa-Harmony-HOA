@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class TicketCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     subject: str = Field(min_length=1, max_length=200)
     description: str | None = None
     category: str = Field(default="MAINTENANCE", pattern=r"^(MAINTENANCE|COMPLAINT|REQUEST|VIOLATION)$")
@@ -18,6 +20,8 @@ class TicketCreate(BaseModel):
 
 
 class TicketUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     status: str | None = Field(default=None, pattern=r"^(OPEN|IN_PROGRESS|RESOLVED|CLOSED)$")
     priority: str | None = Field(default=None, pattern=r"^(LOW|MEDIUM|HIGH)$")
     assigned_to: uuid.UUID | None = None

@@ -19,6 +19,8 @@ class ApLineIn(BaseModel):
 
 
 class ApInvoiceCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     vendor_id: uuid.UUID
     invoice_number: str = Field(min_length=1, max_length=50)
     invoice_date: date

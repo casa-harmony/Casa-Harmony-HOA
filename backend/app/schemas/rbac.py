@@ -27,6 +27,8 @@ class RoleOut(BaseModel):
 
 
 class RoleCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     code: str = Field(min_length=2, max_length=60, pattern=r"^[A-Z0-9_]+$")
     name: str = Field(min_length=2, max_length=120)
     description: str | None = None
@@ -34,6 +36,8 @@ class RoleCreate(BaseModel):
 
 
 class UserCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     email: EmailStr
     full_name: str | None = None
     job_title: str | None = None
@@ -46,6 +50,8 @@ class UserCreate(BaseModel):
     send_invite: bool = False
 
 class UserUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     full_name: str | None = None
     job_title: str | None = None
     is_active: bool | None = None
@@ -75,10 +81,14 @@ class UserOut(BaseModel):
 
 
 class MembershipCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     user_id: uuid.UUID
     role_id: uuid.UUID
 
 class MembershipUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     role_id: uuid.UUID | None = None
     is_active: bool | None = None
 

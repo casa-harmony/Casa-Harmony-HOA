@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 # --- Vendors ---------------------------------------------------------------
 class VendorCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     vendor_number: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=200)
     tax_id: str | None = None
@@ -27,6 +29,8 @@ class VendorCreate(BaseModel):
 
 
 class VendorUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str | None = None
     tax_id: str | None = None
     payment_term_id: uuid.UUID | None = None
@@ -64,6 +68,8 @@ class VendorOut(BaseModel):
 
 # --- Banks -----------------------------------------------------------------
 class BankCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     routing_number: str = Field(min_length=9, max_length=9)
     bank_name: str | None = None  # auto-filled from routing lookup if omitted
     branch_name: str | None = None
@@ -82,6 +88,8 @@ class BankOut(BaseModel):
 
 
 class BankAccountCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     bank_id: uuid.UUID
     account_name: str = Field(min_length=1, max_length=120)
     account_number: str = Field(min_length=4, max_length=34)

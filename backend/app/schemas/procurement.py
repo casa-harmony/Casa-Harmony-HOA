@@ -22,6 +22,8 @@ class PoLineIn(BaseModel):
 
 
 class PoCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     vendor_id: uuid.UUID
     order_date: date
     description: str | None = None

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class BankAccountCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     account_code: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=120)
     fund_value: str = Field(default="OPER", max_length=60)
@@ -38,6 +40,8 @@ class StatementLineIn(BaseModel):
 
 
 class StatementCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     ce_bank_account_id: uuid.UUID
     statement_date: date
     opening_balance: Decimal = Decimal("0")

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class PaymentMethodCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=120)
     method_type: str = Field(pattern=r"^(CHECK|ACH|WIRE|CARD)$")
@@ -36,6 +38,8 @@ class PaymentApplyIn(BaseModel):
 
 
 class PaymentCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     vendor_id: uuid.UUID
     payment_method_id: uuid.UUID | None = None
     payment_date: date

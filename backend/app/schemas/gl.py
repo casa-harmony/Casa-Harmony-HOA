@@ -68,6 +68,8 @@ class PostingRunOut(BaseModel):
 
 
 class BudgetCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     code_combination_id: uuid.UUID
     period_name: str
     amount: Decimal

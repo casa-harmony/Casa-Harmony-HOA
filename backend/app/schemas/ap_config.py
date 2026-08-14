@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 # --- Payment terms ---------------------------------------------------------
 class PaymentTermCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=60)
     description: str | None = None
     due_days: int = Field(default=30, ge=0, le=365)
@@ -23,6 +25,8 @@ class PaymentTermOut(PaymentTermCreate):
 
 # --- Vendor types ----------------------------------------------------------
 class VendorTypeCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=120)
     active: bool = True
@@ -41,6 +45,8 @@ class DistSetLineIn(BaseModel):
 
 
 class DistributionSetCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=80)
     description: str | None = None
     active: bool = True

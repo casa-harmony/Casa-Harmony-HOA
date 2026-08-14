@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class VersionCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=120)
     fiscal_year: int
     version_type: str = Field(default="ORIGINAL", pattern=r"^(ORIGINAL|REVISED|RESERVE|SPECIAL|FORECAST)$")

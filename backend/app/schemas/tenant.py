@@ -35,6 +35,8 @@ class TenantCreate(TenantBase):
 
 
 class TenantUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str | None = Field(default=None, min_length=2, max_length=200)
     legal_name: str | None = None
     status: str | None = Field(default=None, pattern=r"^(active|suspended)$")
