@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../providers";
 import { apiFetch, downloadFile } from "@/lib/api";
 import type { CodeCombination, FaAsset, ReserveStudy, ReserveVsActualRow, Structure } from "@/lib/types";
-import { Alert, Badge, Button, Card, Input, Label, Modal, Select, Spinner } from "@/components/ui";
+import {  Alert, Badge, Button, Card, Input, Label, Modal, Select, Spinner  } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 
 const TONE: Record<string, string> = { ACTIVE: "A", FULLY_DEPRECIATED: "O", DISPOSED: "L" };
 
@@ -75,7 +76,7 @@ export default function FixedAssetsPage() {
     setRva(await apiFetch<ReserveVsActualRow[]>(`/fixed-assets/reserve-studies/${s.id}/vs-actual`, { token, tenantId: activeTenantId }));
   }
 
-  return (
+  const content = (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
@@ -248,4 +249,6 @@ export default function FixedAssetsPage() {
       </Modal>
     </div>
   );
+
+  return <ReadinessEmptyState requiredStage="LEDGER" fallback={content} />;
 }

@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../providers";
 import { useApi, useMutate } from "@/lib/use-api";
-import { Alert, Badge, Button, Card, Input, Label, Modal, Select, Textarea } from "@/components/ui";
+import {  Alert, Badge, Button, Card, Input, Label, Modal, Select, Textarea  } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 import {
   Column, DataTable, DetailSheet, EmptyState, Facts, FilterChips, PageHeader,
   PageShell, SectionGuide, StatCard, StatGrid, StatusBadge, Toolbar, money,
@@ -244,7 +245,11 @@ export default function PayablesPage() {
               {inv.status === "APPROVED" && can("ap.pay") && (
                 <Button
                   onClick={async () => {
-                    await mutate(`/payables/${inv.id}/pay`, "POST");
+                    await mutate(`/ap-payments`, "POST", {
+                      vendor_id: inv.vendor_id,
+                      payment_date: new Date().toISOString().split('T')[0],
+                      applications: [{ invoice_id: inv.id, amount: inv.amount }]
+                    });
                     say(`Payment issued for ${inv.invoice_number}. See the Payments screen.`);
                   }}
                 >

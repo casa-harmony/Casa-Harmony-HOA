@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../providers";
 import { apiFetch, downloadFile } from "@/lib/api";
 import type { AgingRow, CollectionPlan, DelinquencyCase, Homeowner, Lien } from "@/lib/types";
-import { Alert, Badge, Button, Card, Input, Label, Modal, Select, Spinner } from "@/components/ui";
+import {  Alert, Badge, Button, Card, Input, Label, Modal, Select, Spinner  } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 
 const BUCKETS = ["Current", "1-30", "31-60", "61-90", "90+"];
 const STAGE_TONE: Record<string, string> = { NOTICE: "O", PAYMENT_PLAN: "A", LIEN: "R", RESOLVED: "none" };
@@ -80,7 +81,7 @@ export default function CollectionsPage() {
 
   const caseByHo = (id: string) => cases.find((c) => c.homeowner_id === id);
 
-  return (
+  const content = (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
@@ -204,4 +205,6 @@ export default function CollectionsPage() {
       </Modal>
     </div>
   );
+
+  return <ReadinessEmptyState requiredStage="SUBLEDGER" fallback={content} />;
 }

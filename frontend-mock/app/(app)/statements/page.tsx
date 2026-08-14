@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../providers";
 import { apiFetch, downloadFile } from "@/lib/api";
 import type { StatementDelivery, StatementRun } from "@/lib/types";
-import { Alert, Badge, Button, Card, Input, Label, Spinner } from "@/components/ui";
+import {  Alert, Badge, Button, Card, Input, Label, Spinner  } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 
 const TONE: Record<string, string> = { SENT: "A", SKIPPED_OPTOUT: "O", NO_EMAIL: "O", FAILED: "R", GENERATED: "none" };
 
@@ -48,7 +49,7 @@ export default function StatementsPage() {
     setDeliveries(await apiFetch<StatementDelivery[]>(`/statements/runs/${r.id}/deliveries`, { token, tenantId: activeTenantId }));
   }
 
-  return (
+  const content = (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-bold text-slate-800">AR Statements</h1>
@@ -115,4 +116,6 @@ export default function StatementsPage() {
       </div>
     </div>
   );
+
+  return <ReadinessEmptyState requiredStage="SUBLEDGER" fallback={content} />;
 }

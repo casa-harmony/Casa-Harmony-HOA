@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useAuth } from "../../providers";
 import { apiFetch, downloadFile, API_BASE } from "@/lib/api";
 import type { CodeCombination, PurchaseOrder, Structure, Vendor } from "@/lib/types";
-import { Alert, Badge, Button, Card, Input, Label, Modal, Select, Spinner } from "@/components/ui";
+import {  Alert, Badge, Button, Card, Input, Label, Modal, Select, Spinner  } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 
 const TONE: Record<string, string> = {
   INCOMPLETE: "none", SUBMITTED: "R", APPROVED: "A", REJECTED: "L", CANCELLED: "L",
@@ -46,7 +47,8 @@ export default function PurchasingPage() {
       if (filter.active_on) qs.set("active_on", filter.active_on);
       if (filter.min_remaining) qs.set("min_remaining", filter.min_remaining);
       const [p, v, structures] = await Promise.all([
-        apiFetch<PurchaseOrder[]>(`/purchasing${qs.toString() ? `?${qs}` : ""}`, { token, tenantId: activeTenantId }),
+        qs.toString() ? apiFetch<PurchaseOrder[]>(`/purchasing?${qs.toString()}`, { token, tenantId: activeTenantId })
+                      : apiFetch<PurchaseOrder[]>("/purchasing", { token, tenantId: activeTenantId }),
         apiFetch<Vendor[]>("/vendors", { token, tenantId: activeTenantId }),
         apiFetch<Structure[]>("/coa/structures", { token, tenantId: activeTenantId }),
       ]);
@@ -123,7 +125,7 @@ export default function PurchasingPage() {
     } finally { setBusy(null); if (fileRef.current) fileRef.current.value = ""; }
   }
 
-  return (
+  const content = (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
@@ -155,7 +157,14 @@ export default function PurchasingPage() {
             ["activity-log", "Activity Log"],
           ].map(([path, label]) => (
             <Button key={path} variant="secondary"
-              onClick={() => downloadFile(`/purchasing/reports/${path}`, token!, activeTenantId!, `${path}.xlsx`)}>
+              onClick={() => {
+                if (path === "commitment-register") downloadFile("/purchasing/reports/commitment-register", token!, activeTenantId!, "commitment-register.xlsx");
+                else if (path === "variance-by-contract") downloadFile("/purchasing/reports/variance-by-contract", token!, activeTenantId!, "variance-by-contract.xlsx");
+                else if (path === "cost-center-utilization") downloadFile("/purchasing/reports/cost-center-utilization", token!, activeTenantId!, "cost-center-utilization.xlsx");
+                else if (path === "contract-utilization") downloadFile("/purchasing/reports/contract-utilization", token!, activeTenantId!, "contract-utilization.xlsx");
+                else if (path === "matched-summary") downloadFile("/purchasing/reports/matched-summary", token!, activeTenantId!, "matched-summary.xlsx");
+                else if (path === "activity-log") downloadFile("/purchasing/reports/activity-log", token!, activeTenantId!, "activity-log.xlsx");
+              }}>
               {label}
             </Button>
           ))}
@@ -286,4 +295,6 @@ export default function PurchasingPage() {
       </Modal>
     </div>
   );
+
+  return <ReadinessEmptyState requiredStage="MASTERS" fallback={content} />;
 }

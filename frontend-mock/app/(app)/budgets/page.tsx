@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../providers";
 import { apiFetch, downloadFile } from "@/lib/api";
 import type { BudgetControl, BudgetVersion, BudgetVersionDetail, BvARow, CodeCombination, Structure } from "@/lib/types";
-import { Alert, Button, Card, Input, Label, Modal, Select, Spinner } from "@/components/ui";
+import {  Alert, Button, Card, Input, Label, Modal, Select, Spinner  } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Calculator, Download, Play, Plus, Send, CheckCircle, Save, TrendingUp, DollarSign } from "lucide-react";
@@ -84,7 +85,11 @@ export default function BudgetsPage() {
     setBusy(verb); setError(null);
     try {
       const body = verb === "approve" ? { approve: true, make_controlling: true } : undefined;
-      await apiFetch(`/budgeting/versions/${sel.id}/${verb}`, { method: "POST", token, tenantId: activeTenantId, body });
+      if (verb === "approve") {
+          await apiFetch(`/budgeting/versions/${sel.id}/approve`, { method: "POST", token, tenantId: activeTenantId, body });
+      } else {
+          await apiFetch(`/budgeting/versions/${sel.id}/submit`, { method: "POST", token, tenantId: activeTenantId, body });
+      }
       setMsg(verb === "approve" ? "Version approved & set controlling." : "Version submitted.");
       await load(); await openVersion(sel.id);
     } catch (e) { setError(e instanceof Error ? e.message : `${verb} failed`); }
@@ -106,7 +111,7 @@ export default function BudgetsPage() {
   const annual: Record<string, number> = {};
   (sel?.lines || []).forEach((l) => { annual[l.code_combination_id] = (annual[l.code_combination_id] || 0) + Number(l.amount); });
 
-  return (
+  const content = (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
@@ -293,4 +298,6 @@ export default function BudgetsPage() {
       </Modal>
     </div>
   );
+
+  return <ReadinessEmptyState requiredStage="LEDGER" fallback={content} />;
 }

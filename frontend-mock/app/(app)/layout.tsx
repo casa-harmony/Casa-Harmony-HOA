@@ -19,6 +19,7 @@ import { ThemeToggle } from "@/components/theme";
 import { relTime } from "@/components/app/kit";
 import { cn } from "@/lib/utils";
 import { isLive } from "@/lib/api";
+import { ReadinessBanner } from "@/components/readiness";
 
 const ICONS: Record<string, React.ElementType> = {
   "/dashboard": LayoutDashboard,
@@ -107,6 +108,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onMenu={() => setMobileOpen(true)} />
+        <ReadinessBanner />
         <main className="flex-1 overflow-y-auto scroll-thin px-5 py-6 lg:px-8">
           {children}
         </main>

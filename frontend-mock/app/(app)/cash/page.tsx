@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../providers";
 import { apiFetch, downloadFile, API_BASE } from "@/lib/api";
 import type { CashPosition, CeBankAccount, CeStatement, CodeCombination, Structure } from "@/lib/types";
-import { Alert, Badge, Button, Input, Label, Modal, Select, Spinner } from "@/components/ui";
+import {  Alert, Badge, Button, Input, Label, Modal, Select, Spinner  } from "@/components/ui";
+import { ReadinessEmptyState } from "@/components/readiness";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -121,7 +122,7 @@ export default function CashPage() {
   const byFund: Record<string, CashPosition[]> = {};
   position.forEach((p) => { (byFund[p.fund_value] ||= []).push(p); });
 
-  return (
+  const content = (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
@@ -366,4 +367,6 @@ export default function CashPage() {
       </Modal>
     </div>
   );
+
+  return <ReadinessEmptyState requiredStage="LEDGER" fallback={content} />;
 }

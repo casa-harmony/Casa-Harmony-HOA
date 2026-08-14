@@ -36,6 +36,7 @@ from app.api.v1 import (
     subledger,
     tenants,
     vendors,
+    reports,
 )
 
 api_router = APIRouter()
@@ -76,3 +77,4 @@ api_router.include_router(notifications.router)
 api_router.include_router(service_desk.router)
 api_router.include_router(residents.router)
 api_router.include_router(portal.router)
+api_router.include_router(reports.router)

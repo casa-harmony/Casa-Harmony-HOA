@@ -88,7 +88,8 @@ export default function ReceivingPage() {
   async function inspect(id: string, verb: "accept" | "reject") {
     setBusy(id); setError(null);
     try {
-      await apiFetch(`/receiving/${id}/${verb}`, { method: "POST", token, tenantId: activeTenantId });
+      if (verb === "accept") await apiFetch(`/receiving/${id}/accept`, { method: "POST", token, tenantId: activeTenantId });
+      else await apiFetch(`/receiving/${id}/reject`, { method: "POST", token, tenantId: activeTenantId });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : `${verb} failed`);
