@@ -1,14 +1,20 @@
-# Logins & communities (HOAs)
+# Logins & Communities (HOAs)
 
-How to sign in today, and how to create / remove a community (tenant). Commands
-run from `backend/` with the environment loaded:
+**Everything runs against real Neon PostgreSQL — no mock data sources.** All data persists across browser sessions and redeploys. Upload documents and they land in Cloudinary. Add residents and they're live in the database immediately.
+
+Commands run from `backend/` with the environment loaded:
 
 ```bash
+cd backend
 set -a; . ./.env; set +a
 ```
 
-Community management writes across identity tables, so run those scripts as the
-**owner** role by prefixing `DATABASE_URL="$MIGRATION_DB_URL"`.
+Community management (creating/removing HOAs) needs the **database owner role**:
+
+```bash
+DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.create_community …
+DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.purge_tenant …
+```
 
 ---
 
@@ -19,94 +25,139 @@ The live Neon database currently holds one community and two staff logins
 
 ### Staff — main login (`/login`)
 
-| Login | Password | Role | Community |
+| Email | Password | Role | Can do |
 |---|---|---|---|
-| `superadmin@casaharmony.ai` | `ChangeMe!Superadmin1` | SUPERADMIN (whole platform) | all |
-| `sysadmin@casaharmony.ai` | `ChangeMe!Sysadmin1` | SYSADMIN | Casa Harmony Master Association |
+| `superadmin@casaharmony.ai` | `ChangeMe!Superadmin1` | **SUPERADMIN** | Create communities, manage all HOAs, change sysadmin password |
+| `sysadmin@casaharmony.ai` | `ChangeMe!Sysadmin1` | **SYSADMIN** | Run Casa Harmony HOA: add/manage users, residents, finances, everything except creating new HOAs |
 
-- **SUPERADMIN** is the only role that can create communities. It sees and
-  administers every HOA.
-- **SYSADMIN** runs a single HOA end to end — users, residents, COA, and all the
-  financial modules.
-- **Change both passwords after first login** (they are seed defaults).
+**Change both passwords immediately** — these are factory defaults.
+
+SUPERADMIN is the only role that can create a community. Use it to spin up a new HOA, then sign in as that HOA's SYSADMIN to manage it day-to-day.
 
 ### Resident — portal login (`/portal/login`)
 
-| Username | Community (HOA) | Password | Unit |
+| Username | HOA | Password | Unit |
 |---|---|---|---|
 | `owner1` | `casa-harmony` | `ChangeMe!Owner1` | Demo Homeowner 1 |
 
-Residents sign in with **HOA + username + password**, then an emailed one-time
-code (in development the code comes back in the API response as `dev_otp`; in
-production it is emailed).
+Residents authenticate with **HOA slug + username + password**, then receive a one-time code (in development, returned in the API response as `dev_otp`; in production, sent by email or SMS).
 
-> The other names you may see on staff screens in the Casa Harmony HOA — "Bo
-> Ard", "Del Inquent", "Dun Ning", "Pat Owner" — are **sample/demo homeowners**,
-> not real people. Casa Harmony is the kitchen-sink demo HOA. For real use,
-> create your own clean community (below); its screens start empty and show only
-> the residents you add.
+> **Casa Harmony is the demo HOA** — it holds sample homeowners and invoices for testing the UI. To work with real data, create your own community (see next section). Your community starts empty; you add the residents and their data from the staff screens or via the provisioning script.
 
 ---
 
 ## Create a new community
 
-One command provisions the whole thing — the HOA, its Chart of Accounts, an
-admin login, and any resident logins you list:
+One command stands up a complete HOA end-to-end:
 
 ```bash
 DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.create_community \
-    --name "Willowbrook HOA" --slug willowbrook \
-    --admin-email admin@willowbrook.org --admin-password 'Str0ng!Passw0rd' \
+    --name "Willowbrook HOA" \
+    --slug willowbrook \
+    --admin-email admin@willowbrook.org \
+    --admin-password 'StrongPassword123!' \
     --resident 'jsmith:Jane Smith:101A:jane@example.com' \
     --resident 'bjones:Bob Jones:102B:bob@example.com'
 ```
 
-- `--slug` is the URL-safe id residents log in against (lower-case, digits,
-  hyphens). It cannot be changed later, so pick it deliberately.
-- The admin is created as **SYSADMIN** for that HOA and can then do everything
-  else from inside the app.
-- Each `--resident` is `username:Full Name:unit[:email]`, repeatable. Every
-  resident is linked to a freshly created homeowner "unit" and starts with **no
-  usable password** — they set one via the portal's *Forgot password* (or you
-  can set it for them from the staff Residents screen).
-- Add `--no-coa` only if you intend to configure the Chart of Accounts by hand.
+This creates:
+- The HOA (tenant) itself
+- A default 6-segment Chart of Accounts (standard HOA structure)
+- An admin user (SYSADMIN role for that HOA only)
+- Resident accounts linked to their units (homeowners)
 
-You can also do all of this **inside the app** as SUPERADMIN/SYSADMIN: create the
-tenant, add users and grant memberships, then add residents on the Residents
-screen. The script just does it in one step, which is handy for standing up a
-clean demo quickly.
+**Arguments:**
+- `--name`: Display name, e.g., "Willowbrook HOA"
+- `--slug`: URL-safe id residents log in against (lowercase, digits, hyphens only; permanent, so choose carefully)
+- `--admin-email`: Staff login email
+- `--admin-password`: Staff password (8+ characters recommended)
+- `--resident`: Repeatable; format is `username:Full Name:unit_number[:email]`
+  - Username is the resident portal login
+  - Unit is their building/lot (e.g., 101A, Unit 12)
+  - Email is optional
+  - Residents are auto-linked to a homeowner account created for their unit
 
-### After creating
+**After provisioning:**
 
-1. Sign in as the new admin at `/login`.
-2. Add residents / homeowners, or import them, from the staff screens.
-3. Residents set their password via `/portal/login` → *Forgot password*.
+1. Admin signs in at `/login` with their email and password
+2. Residents receive instructions to visit `/portal/login`, set a password via "Forgot password", then sign in
+3. Admin adds invoices, receipts, residents, documents, etc. from the staff screens
+4. All financial data, documents, and resident records live in the database in real-time
 
----
+**Alternatively**, do all of this inside the app as SUPERADMIN:
+1. Navigate to Communities screen
+2. Click "New community"
+3. Fill in the details and save
+4. Add users and memberships from the Users screen
+5. Add residents from the Residents screen
 
-## Remove a community
-
-Deletes an HOA and **all** its data — irreversible. Used above to clear the
-development/test communities.
-
-```bash
-DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.purge_tenant --slug willowbrook
-# add --yes to skip the confirmation prompt
-```
-
-It refuses to touch `casa-harmony` unless you pass `--force`, and afterwards
-removes any user left with no remaining membership.
+The script is faster for standing up a test HOA quickly; the UI is better for production use where you're doing it once and want full control.
 
 ---
 
-## Starting completely fresh
+## Hide or remove a community
 
-To wipe everything and re-seed just the baseline (superadmin, sysadmin, the Casa
-Harmony demo HOA):
+### Hide the demo HOA from community lists
+
+The Casa Harmony demo community is marked as "demo" and hidden from community lists by default. To show it:
+
+1. Open the Communities screen (staff-only, SUPERADMIN access)
+2. Click "Show demo communities" button in the top-right
+3. The Casa Harmony card now appears with a "Demo" badge
+
+This is a display toggle only — the demo HOA still exists, all its data is intact, and any staff member who is a member of it still accesses it normally. It's simply not shown in the default community list.
+
+### Permanently delete a community
+
+Deletes an HOA and **all** its data and attachments — **irreversible**:
 
 ```bash
-DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.purge_tenant --slug casa-harmony --force
-python -m scripts.seed      # recreates the baseline as the app role
+DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.purge_tenant --slug willowbrook --yes
 ```
 
-Or point `create_community` at a clean database and skip the demo HOA entirely.
+The script:
+- Deletes every row scoped to that HOA (invoices, residents, documents, GL journals, etc.)
+- Removes any Cloudinary files associated with documents in that HOA
+- Deletes the HOA tenant itself
+- Cleans up any users left with no remaining memberships
+
+It refuses to touch `casa-harmony` (the demo) unless you pass `--force`. Use `--yes` to skip the confirmation prompt.
+
+---
+
+## Document storage
+
+Uploaded invoices, contracts, reserve studies, and other document attachments are stored in **Cloudinary** (if configured) or fall back to local disk (if not).
+
+**For production** (e.g., Railway), set these environment variables on the API:
+```
+CLOUDINARY_CLOUD_NAME=your-cloud
+CLOUDINARY_API_KEY=your-key
+CLOUDINARY_API_SECRET=your-secret
+CLOUDINARY_FOLDER=casa-harmony/documents
+```
+
+Or pass a single `CLOUDINARY_URL`:
+```
+CLOUDINARY_URL=cloudinary://key:secret@cloud-name
+```
+
+**For local development**, leave them unset. Documents upload to `/tmp/casa_docs` (local disk) which vanishes on restart — fine for testing, not for production.
+
+All document downloads are gated by the API: the system generates a signed, short-lived Cloudinary URL server-side before sending it to the client, so access control (permissions + tenant isolation) lives at the API layer, not Cloudinary's link security.
+
+---
+
+## Reset everything (careful!)
+
+To wipe all HOAs and recreate just the baseline (superadmin, sysadmin, Casa Harmony demo):
+
+```bash
+# Delete all communities
+DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.purge_tenant --slug casa-harmony --force --yes
+
+# Re-seed the baseline
+python -m scripts.seed
+```
+
+This recreates the factory default state: SUPERADMIN, SYSADMIN logins, and the Casa Harmony demo HOA ready to use.
