@@ -59,7 +59,7 @@ export default function DashboardPage() {
       <PageHeader
         eyebrow={tenant?.name}
         title={`Good morning, ${firstName}`}
-        description={`You are signed in as ${role?.name}. This dashboard only shows what your role is allowed to see — sign in as someone else and it changes.`}
+        description={`You are signed in as ${auth.isSuperadmin ? "Platform Super Administrator" : role?.name}. This dashboard only shows what your role is allowed to see — sign in as someone else and it changes.`}
         actions={
           <Link href="/roles-and-flow">
             <Button variant="secondary" size="sm">
