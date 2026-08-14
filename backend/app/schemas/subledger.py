@@ -9,6 +9,8 @@ from pydantic import BaseModel, EmailStr, Field
 
 # --- AR Homeowners ---------------------------------------------------------
 class HomeownerCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     account_number: str = Field(min_length=1, max_length=40)
     first_name: str = Field(min_length=1, max_length=80)
     last_name: str = Field(min_length=1, max_length=80)
@@ -32,6 +34,8 @@ class HomeownerOut(BaseModel):
 
 # --- AR Invoices -----------------------------------------------------------
 class InvoiceCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     homeowner_id: uuid.UUID
     invoice_number: str = Field(min_length=1, max_length=40)
     description: str | None = None
@@ -54,7 +58,14 @@ class InvoiceOut(BaseModel):
     invoice_date: date
     due_date: date | None
     status: str
+    # Two independent GL posting paths write these: gl_journal_id comes from
+    # the direct-create/plan-run path (services/gl_posting.py, services/ar_billing.py);
+    # gl_je_header_id comes from the accounting-cycle path — assessment-run
+    # then /invoices/{id}/account or /invoices/account-run
+    # (services/subledger_accounting.py). An invoice posted through one path
+    # legitimately has null in the other; only one is ever set.
     gl_journal_id: uuid.UUID | None
+    gl_je_header_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 
@@ -68,6 +79,8 @@ class JournalLineIn(BaseModel):
 
 
 class JournalCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     structure_id: uuid.UUID
     accounting_date: date
     description: str | None = None
@@ -98,6 +111,8 @@ class JournalOut(BaseModel):
 
 # --- AR Receipts -----------------------------------------------------------
 class ReceiptCreate(BaseModel):
+    model_config = {"extra": "forbid"}
+
     homeowner_id: uuid.UUID
     receipt_number: str = Field(min_length=1, max_length=40)
     amount: Decimal = Field(gt=0)
