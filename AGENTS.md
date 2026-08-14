@@ -141,6 +141,50 @@ against local Postgres it's minutes. `docker compose up postgres` then point
 
 ---
 
+## Outstanding work
+
+As of 2026-08-14 (`develop`, this session). Day-zero flow (create a community,
+provision an admin, sign in, bill and post an assessment, collect a receipt,
+balance the trial balance, create a resident, resident portal login, unit
+isolation) is **live-verified working end to end**, rerun fresh this session
+— see `docs/CONFIDENCE_REPORT.md` for the full run and evidence. The prior
+"Outstanding work" list (`extra: "forbid"` audit, the 6 failing tests, the
+resident invite flow, the `gl_journal_id` dead field, and repo hygiene) is
+**closed** — see `docs/CONFIDENCE_REPORT.md` for what changed and how each
+was verified. What's below is new/residual, found while closing that list.
+
+### Should-fix soon
+
+**1. The resident invite email links to a frontend page that doesn't exist
+yet.** `POST /residents` with `send_invite: true` now emails a working
+set-password link (`POST /portal/accept-invite`, verified live end to end —
+set password, log in, MFA, single-use token). But no `frontend-mock` page
+consumes it, so a real resident clicking the link gets a 404. This mirrors a
+pre-existing gap: the portal's `forgot-password`/`reset-password` endpoints
+have had no frontend page either, backend-only since before this session. Add
+`app/portal/accept-invite/page.tsx` (mirror `app/reset-password/page.tsx`,
+POST to `/portal/accept-invite` with `{token, new_password}`) — and consider
+the same for the existing portal forgot/reset flow while in there.
+
+### Minor, non-blocking
+
+**2. `ArReceipt.gl_journal_id`** (`app/models/subledger.py`) is genuinely
+dead — never written, and not exposed by `ReceiptOut`, so it doesn't mislead
+any caller the way the invoice-side field did. Low priority; remove in a
+migration whenever someone's touching that model anyway.
+
+### Reference
+
+- `docs/DAY_ZERO_ARCHITECTURE.md` — the original architecture review; the nine
+  work packages it lists (WP1–WP9) are all done.
+- `docs/DEPLOY_RUNBOOK.md` — Railway deploy procedure; the P0/P1 blockers it
+  lists are all closed.
+- `docs/CONFIDENCE_REPORT.md` — the live-verification run behind this list,
+  with full request/response evidence for every item above, plus what closed
+  this session.
+
+---
+
 ## Before you say it's done
 
 1. `./node_modules/.bin/tsc --noEmit` clean.
