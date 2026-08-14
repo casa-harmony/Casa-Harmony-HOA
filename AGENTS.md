@@ -105,6 +105,9 @@ DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/alembic upgrade head
 ./.venv/bin/python -m scripts.seed                  # idempotent
 ./.venv/bin/python -m scripts.provision_neon --owner-url "<owner-url>"
 ./.venv/bin/python -m scripts.check_tenant_isolation # needs the API running
+# Community (tenant) management — run as the owner; see docs/COMMUNITIES.md:
+DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/python -m scripts.create_community --name … --slug … --admin-email … --admin-password …
+DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/python -m scripts.purge_tenant --slug … --yes
 ```
 
 Frontend (from `frontend-mock/`):

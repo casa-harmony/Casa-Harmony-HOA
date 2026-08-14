@@ -150,6 +150,11 @@ def main() -> int:
     else:
         print(f"{PASS} → {r.status_code} (refused)")
 
+    # The probe tenant was created through the API, which has no delete route,
+    # so it cannot be removed over HTTP. Tell the caller how to clean it up.
+    print(f"\nNOTE: this run created a throwaway HOA (slug '{slug}'). Remove it with:")
+    print(f'  DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.purge_tenant --slug {slug} --yes')
+
     print("\n" + "=" * 60)
     if failures:
         print("RESULT: TENANT ISOLATION FAILURES")
