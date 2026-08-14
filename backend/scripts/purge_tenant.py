@@ -63,7 +63,13 @@ TENANT_TABLES_CHILD_FIRST = [
 ]
 
 
+from app.core.config import settings
+
 def main() -> int:
+    if settings.ENVIRONMENT == "production":
+        print("Fatal: This script is disabled in production environments.", file=sys.stderr)
+        return 2
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--slug", action="append", default=[], help="HOA slug (repeatable)")
     ap.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
@@ -111,6 +117,16 @@ def main() -> int:
         # Capture identifiers as plain strings; the ORM row is deleted below and
         # must not be touched afterwards.
         target_info = [(str(t.id), t.slug) for t in targets]
+        target_ids = [tid for tid, _ in target_info]
+        ids_sql = ",".join(f"'{tid}'" for tid in target_ids)
+
+        # Users who hold a membership in a purged tenant — captured before those
+        # rows are deleted below, so orphan cleanup never touches users who
+        # belonged only to other, still-existing tenants.
+        affected = {r[0] for r in db.execute(text(
+            f"SELECT DISTINCT user_id FROM memberships WHERE tenant_id IN ({ids_sql})"
+        )).all()}
+
         for tid, slug in target_info:
             deleted = 0
             for table in tables:
@@ -126,14 +142,18 @@ def main() -> int:
             db.commit()
             print(f"  purged {slug}: {deleted} scoped rows + roles + tenant")
 
-        # Users with no memberships left and not superadmin are orphans.
-        orphans = db.execute(text(
-            "SELECT id, email FROM users u WHERE u.is_superadmin = false "
-            "AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)"
-        )).all()
-        for uid, email in orphans:
-            db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(uid)})
-            print(f"  removed orphaned user {email}")
+        # Users left with no memberships and not superadmin are orphans — but
+        # only the ones who actually lost a membership in this purge.
+        if affected:
+            affected_sql = ",".join(f"'{u}'" for u in affected)
+            orphans = db.execute(text(
+                f"SELECT id, email FROM users u WHERE u.id IN ({affected_sql}) "
+                "AND u.is_superadmin = false "
+                "AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)"
+            )).all()
+            for uid, email in orphans:
+                db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(uid)})
+                print(f"  removed orphaned user {email}")
         db.commit()
 
         print("Done.")

@@ -146,6 +146,24 @@ class PortalDocument(BaseModel):
     created_at: datetime
 
 
+class PortalTicketIn(BaseModel):
+    subject: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    category: str = Field(default="MAINTENANCE", pattern=r"^(MAINTENANCE|COMPLAINT|REQUEST|VIOLATION)$")
+    priority: str = Field(default="MEDIUM", pattern=r"^(LOW|MEDIUM|HIGH)$")
+
+
+class PortalTicketOut(BaseModel):
+    id: uuid.UUID
+    ticket_number: str
+    subject: str
+    description: str | None
+    category: str
+    priority: str
+    status: str
+    created_at: datetime
+
+
 class PortalNotification(BaseModel):
     category: str  # OVERDUE | DUE_SOON | LATE_FEE | STATEMENT
     message: str

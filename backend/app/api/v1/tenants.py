@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import Principal, get_principal, require_permission, require_superadmin
 from app.models.identity import Tenant, User, Role, Membership
 from app.schemas.tenant import TenantCreate, TenantOut, TenantUpdate, TenantAdminCreate
-from app.services import audit
+from app.services import audit, notifications
 from app.services.provisioning import provision_tenant
 from app.services.readiness import get_tenant_readiness
-from app.core.security import hash_password
+from app.core.security import create_password_reset_token, hash_password
 from sqlalchemy import text
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
@@ -146,19 +148,38 @@ def create_tenant_admin(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Role '{payload.role_code}' not found")
         
     user = db.execute(select(User).where(User.email == payload.email.lower())).scalar_one_or_none()
+    created = False
     if not user:
         if not payload.password and not payload.send_invite:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Must provide password or send_invite for new users")
+        # An invited user gets an unusable random hash; the emailed reset token
+        # is bound to its password version, so it dies once they set a password.
         user = User(
             email=payload.email.lower(),
             full_name=payload.full_name,
-            hashed_password=hash_password(payload.password) if payload.password else "",
+            job_title=payload.job_title,
+            hashed_password=(
+                hash_password(payload.password)
+                if payload.password
+                else hash_password(secrets.token_urlsafe(32))
+            ),
             is_superadmin=False,
-            must_change_password=True,
+            must_change_password=True,  # superadmin-set password → force change on first login
         )
         db.add(user)
         db.flush()
-        
+        created = True
+    else:
+        # Existing account: apply the superadmin-set password / profile fields.
+        # job_title lives on User, not Membership — Membership has no such column.
+        if payload.password:
+            user.hashed_password = hash_password(payload.password)
+            user.must_change_password = True
+        if payload.job_title is not None:
+            user.job_title = payload.job_title
+        if payload.full_name:
+            user.full_name = payload.full_name
+
     membership = db.execute(
         select(Membership).where(Membership.user_id == user.id, Membership.tenant_id == tenant_id, Membership.role_id == role.id)
     ).scalar_one_or_none()
@@ -168,13 +189,16 @@ def create_tenant_admin(
             tenant_id=tenant_id,
             user_id=user.id,
             role_id=role.id,
-            job_title=payload.job_title,
             is_active=True,
             created_by=principal.user.id,
             updated_by=principal.user.id,
         )
         db.add(membership)
-        
+
+    if created and payload.send_invite and not payload.password:
+        token = create_password_reset_token(user.id, user.hashed_password)
+        notifications.send_password_invite(user.email, token)
+
     db.commit()
     return {"message": "Admin created successfully"}
 
@@ -239,6 +263,9 @@ def delete_tenant(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_superadmin),
 ):
+    if settings.ENVIRONMENT == "production":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tenant deletion is disabled in production environments.")
+
     tenant = db.get(Tenant, tenant_id)
     if not tenant:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found")
@@ -253,6 +280,14 @@ def delete_tenant(
     tables = [t for t in TENANT_TABLES_CHILD_FIRST if t in existing]
 
     tid = str(tenant_id)
+
+    # Users who hold a membership here — captured before those rows are deleted,
+    # so the orphan sweep below never touches users who belonged only to other
+    # (still-existing) HOAs.
+    affected = {r[0] for r in db.execute(text(
+        "SELECT DISTINCT user_id FROM memberships WHERE tenant_id = :tid"
+    ), {"tid": tid}).all()}
+
     for table in tables:
         db.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tid})
         
@@ -261,11 +296,21 @@ def delete_tenant(
     db.execute(text("DELETE FROM roles WHERE tenant_id = :tid"), {"tid": tid})
     db.execute(text("DELETE FROM tenants WHERE id = :tid"), {"tid": tid})
 
-    orphans = db.execute(text(
-        "SELECT id FROM users u WHERE u.is_superadmin = false "
-        "AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)"
-    )).all()
-    for (uid,) in orphans:
-        db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(uid)})
+    # Remove only users orphaned by THIS purge — their last membership was in
+    # this tenant — and record who was removed.
+    if affected:
+        affected_sql = ",".join(f"'{u}'" for u in affected)
+        orphans = db.execute(text(
+            f"SELECT id, email FROM users u WHERE u.id IN ({affected_sql}) "
+            "AND u.is_superadmin = false "
+            "AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)"
+        )).all()
+        for uid, email in orphans:
+            db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": str(uid)})
+            audit.record(
+                db, action="DELETE", entity_type="User", entity_id=uid,
+                after={"email": email, "reason": "orphaned by tenant deletion"},
+                tenant_id=None,
+            )
 
     return None

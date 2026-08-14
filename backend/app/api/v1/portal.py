@@ -10,16 +10,18 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, get_elevated_db
 from app.core.deps import get_current_resident
+from app.core.rate_limit import limiter
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.documents import DocumentAttachment
 from app.models.identity import Tenant
 from app.models.resident import Resident, ResidentUnit
+from app.models.service_desk import ServiceTicket
 from app.models.subledger import ArHomeowner, ArInvoice, ArReceipt
 from app.core.config import settings
 from app.schemas.resident import (
@@ -35,6 +37,8 @@ from app.schemas.resident import (
     PortalReceipt,
     PortalReset,
     PortalResident,
+    PortalTicketIn,
+    PortalTicketOut,
     PortalToken,
     PortalUnit,
     PortalVerify,
@@ -66,7 +70,8 @@ def _resident_out(resident: Resident) -> PortalResident:
 
 
 @router.post("/login", response_model=PortalLoginResult)
-def portal_login(payload: PortalLogin, db: Session = Depends(get_elevated_db)):
+@limiter.limit("10/minute")
+def portal_login(payload: PortalLogin, request: Request, db: Session = Depends(get_elevated_db)):
     """Step 1: verify the password, then send an email/SMS one-time code (MFA)."""
     tenant = db.execute(
         select(Tenant).where(Tenant.slug == payload.hoa_slug.lower())
@@ -103,7 +108,8 @@ def portal_login(payload: PortalLogin, db: Session = Depends(get_elevated_db)):
 
 
 @router.post("/login/verify", response_model=PortalToken)
-def portal_login_verify(payload: PortalVerify, db: Session = Depends(get_elevated_db)):
+@limiter.limit("10/minute")
+def portal_login_verify(payload: PortalVerify, request: Request, db: Session = Depends(get_elevated_db)):
     """Step 2: verify the one-time code and issue the resident token."""
     try:
         resident = otp.verify_challenge(db, payload.challenge_id, payload.code)
@@ -134,7 +140,8 @@ def portal_change_password(
 
 
 @router.post("/forgot-password")
-def portal_forgot_password(payload: PortalForgot, db: Session = Depends(get_elevated_db)):
+@limiter.limit("5/minute")
+def portal_forgot_password(payload: PortalForgot, request: Request, db: Session = Depends(get_elevated_db)):
     """Send a one-time reset code to the resident's email/SMS. Always 200."""
     tenant = db.execute(
         select(Tenant).where(Tenant.slug == payload.hoa_slug.lower())
@@ -493,3 +500,54 @@ def portal_collections(resident: Resident = Depends(get_current_resident),
     lien_out = [{"lien_number": ln.lien_number, "amount": str(ln.amount), "status": ln.status,
                  "filed_date": ln.filed_date.isoformat() if ln.filed_date else None} for ln in liens]
     return {"payment_plans": plan_out, "liens": lien_out}
+
+
+# --- Resident service requests --------------------------------------------
+@router.get("/tickets", response_model=list[PortalTicketOut])
+def my_tickets(resident: Resident = Depends(get_current_resident),
+               db: Session = Depends(get_db)):
+    """Service requests the resident reported — scoped to their own units only."""
+    ho_ids = _owned_homeowner_ids(db, resident)
+    if not ho_ids:
+        return []
+    rows = db.execute(
+        select(ServiceTicket).where(
+            ServiceTicket.tenant_id == resident.tenant_id,
+            ServiceTicket.homeowner_id.in_(ho_ids),
+        ).order_by(ServiceTicket.created_at.desc())
+    ).scalars().all()
+    return [
+        PortalTicketOut(
+            id=t.id, ticket_number=t.ticket_number, subject=t.subject,
+            description=t.description, category=t.category, priority=t.priority,
+            status=t.status, created_at=t.created_at,
+        )
+        for t in rows
+    ]
+
+
+@router.post("/tickets", response_model=PortalTicketOut, status_code=status.HTTP_201_CREATED)
+def create_ticket(payload: PortalTicketIn,
+                  resident: Resident = Depends(get_current_resident),
+                  db: Session = Depends(get_db)):
+    """Report a service request; the ticket is linked to one of the resident's own units."""
+    ho_ids = _owned_homeowner_ids(db, resident)
+    if not ho_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No unit linked to this account")
+    seq = db.execute(
+        select(func.count(ServiceTicket.id)).where(ServiceTicket.tenant_id == resident.tenant_id)
+    ).scalar_one()
+    ticket = ServiceTicket(
+        tenant_id=resident.tenant_id,
+        ticket_number=f"SRV-{seq + 1:06d}",
+        subject=payload.subject,
+        description=payload.description,
+        category=payload.category,
+        priority=payload.priority,
+        homeowner_id=ho_ids[0],
+    )
+    db.add(ticket)
+    db.flush()
+    audit.record(db, action="CREATE", entity_type="ServiceTicket", entity_id=ticket.id,
+                 after={"ticket_number": ticket.ticket_number, "subject": ticket.subject})
+    return ticket

@@ -96,7 +96,7 @@ function route<T>(c: Ctx): T {
         completed: true,
         missing: [],
         next_action_label: "Add an administrator",
-        next_action_route: "/settings/users",
+        next_action_route: "/users",
       },
       {
         id: "LEDGER",
@@ -104,7 +104,7 @@ function route<T>(c: Ctx): T {
         completed: true,
         missing: [],
         next_action_label: "Configure Chart of Accounts",
-        next_action_route: "/accounting/coa",
+        next_action_route: "/coa",
       },
       {
         id: "CALENDAR",
@@ -112,7 +112,7 @@ function route<T>(c: Ctx): T {
         completed: true,
         missing: [],
         next_action_label: "Open fiscal period",
-        next_action_route: "/accounting/periods",
+        next_action_route: "/periods",
       },
       {
         id: "MASTERS",
@@ -120,7 +120,7 @@ function route<T>(c: Ctx): T {
         completed: true,
         missing: [],
         next_action_label: "Configure master data",
-        next_action_route: "/settings/masters",
+        next_action_route: "/vendors",
       },
       {
         id: "SUBLEDGER",
@@ -128,7 +128,7 @@ function route<T>(c: Ctx): T {
         completed: true,
         missing: [],
         next_action_label: "Import homeowners",
-        next_action_route: "/receivables/homeowners",
+        next_action_route: "/residents",
       },
       {
         id: "LIVE",
@@ -136,7 +136,7 @@ function route<T>(c: Ctx): T {
         completed: false,
         missing: ["Tenant is not activated"],
         next_action_label: "Complete go-live checklist",
-        next_action_route: "/settings/golive",
+        next_action_route: "/go-live",
       }
     ];
     return ok({

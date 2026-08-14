@@ -20,7 +20,13 @@ import React, {
 import { PERSONAS, TENANTS, type Persona, type Tenant } from "@/lib/mock-data/seed";
 import { permsFor, ROLES, roleHas, navFor, navForPermissions } from "@/lib/rbac";
 import { subscribe } from "@/lib/mock-data/store";
-import { getAuthToken, isLive, setAuthToken, setUnauthorizedHandler } from "@/lib/api";
+import {
+  clearSessionTokens,
+  getAuthToken,
+  isLive,
+  setAuthToken,
+  setUnauthorizedHandler,
+} from "@/lib/api";
 import {
   fetchMe,
   fetchTenants,
@@ -320,7 +326,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(() => {
     if (isLive) {
-      setAuthToken(null);
+      clearSessionTokens();
       setLive(null);
       persistLive(null);
       return;

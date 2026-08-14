@@ -28,6 +28,10 @@ openpyxl==3.1.5
 python-docx==1.1.2
 reportlab==4.2.5
 
+# Date/time arithmetic (provisioning uses dateutil.relativedelta; declared
+# explicitly because it must not ride in transitively via celery)
+python-dateutil==2.9.0.post0
+
 # Document storage (uploaded invoices/contracts) — falls back to local disk
 # when unconfigured; see app/services/documents_svc.py
 cloudinary==1.41.0
@@ -35,7 +39,12 @@ cloudinary==1.41.0
 # Optional in-process scheduler (nightly GL posting)
 APScheduler==3.10.4
 
+# Optional background task queue — Celery mode (replaces the in-process scheduler)
+celery[redis]==5.6.3
+
+# Rate limiting — auth and resident-portal endpoints
+slowapi==0.1.9
+
 # Testing
 pytest==8.3.4
 httpx==0.28.1
-celery[redis]==5.6.3

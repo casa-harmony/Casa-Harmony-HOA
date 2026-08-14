@@ -7,7 +7,12 @@ import {
   MessageSquarePlus, Receipt, Ticket, Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, isLive } from "@/lib/api";
+import {
+  clearPortalToken,
+  getPortalToken,
+  type PortalResident,
+} from "@/lib/portal-live";
 import { TENANTS } from "@/lib/mock-data/seed";
 import {
   Badge, Button, Card, Input, Label, Modal, Select, Spinner, Textarea,
@@ -23,6 +28,8 @@ type Tab = "assessments" | "payments" | "documents" | "requests";
 export default function PortalPage() {
   const router = useRouter();
   const [session, setSession] = useState<{ residentId: string; tenantId: string } | null>(null);
+  // Live mode: the resident JWT is the session; /portal/me supplies the name.
+  const [liveResident, setLiveResident] = useState<PortalResident | null>(null);
   const [ready, setReady] = useState(false);
   const [rev, setRev] = useState(0);
 
@@ -38,22 +45,52 @@ export default function PortalPage() {
 
   /* ------------------------------------------------------------- session */
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("casa_portal_session");
-      if (!raw) {
+    if (!isLive) {
+      try {
+        const raw = localStorage.getItem("casa_portal_session");
+        if (!raw) {
+          router.replace("/portal/login");
+          return;
+        }
+        setSession(JSON.parse(raw));
+      } catch {
         router.replace("/portal/login");
-        return;
+      } finally {
+        setReady(true);
       }
-      setSession(JSON.parse(raw));
-    } catch {
-      router.replace("/portal/login");
-    } finally {
-      setReady(true);
+      return;
     }
+
+    // Live: the resident JWT is the session. Validate it via /portal/me so an
+    // expired or revoked token lands back on the login screen instead of a
+    // shell that looks signed in.
+    const token = getPortalToken();
+    if (!token) {
+      router.replace("/portal/login");
+      setReady(true);
+      return;
+    }
+    apiFetch<PortalResident>("/portal/me", { token })
+      .then((me) => setLiveResident(me))
+      .catch(() => {
+        clearPortalToken();
+        router.replace("/portal/login");
+      })
+      .finally(() => setReady(true));
   }, [router]);
 
   const call = useCallback(
     <T,>(path: string, init?: { method?: string; body?: any }) => {
+      if (isLive) {
+        // The resident token binds RLS to the resident's HOA; no tenant header.
+        const token = getPortalToken();
+        if (!token) return Promise.resolve(null as T);
+        return apiFetch<T>(path, {
+          token,
+          method: init?.method,
+          body: init?.body,
+        });
+      }
       if (!session) return Promise.resolve(null as T);
       const sep = path.includes("?") ? "&" : "?";
       return apiFetch<T>(`${path}${sep}resident=${session.residentId}`, {
@@ -65,16 +102,18 @@ export default function PortalPage() {
     [session]
   );
 
+  const signedIn = isLive ? !!liveResident : !!session;
+
   /* ---------------------------------------------------------------- load */
   useEffect(() => {
-    if (!session) return;
+    if (!signedIn) return;
     call<any>("/portal/dashboard").then(setDash);
     call<any[]>("/portal/units").then((u) => {
       setUnits(u ?? []);
       setSelected((prev: any) => prev ?? (u ?? [])[0] ?? null);
     });
     call<any[]>("/portal/tickets").then((t) => setTickets(t ?? []));
-  }, [session, call, rev]);
+  }, [signedIn, call, rev]);
 
   /** Tab name → the endpoint that serves it. */
   const ENDPOINT: Record<Exclude<Tab, "requests">, string> = {
@@ -91,7 +130,7 @@ export default function PortalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, tab, call, rev]);
 
-  if (!ready || !session) {
+  if (!ready || !signedIn) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Spinner label="Opening your account…" />
@@ -120,7 +159,8 @@ export default function PortalPage() {
             variant="ghost"
             size="sm"
             onClick={() => {
-              localStorage.removeItem("casa_portal_session");
+              if (isLive) clearPortalToken();
+              else localStorage.removeItem("casa_portal_session");
               router.replace("/portal/login");
             }}
           >
@@ -137,7 +177,10 @@ export default function PortalPage() {
             Your account
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            Hello, {dash?.resident_name?.split(" ")[0] ?? "there"}
+            Hello,{" "}
+            {liveResident?.full_name?.split(" ")[0] ??
+              dash?.resident_name?.split(" ")[0] ??
+              "there"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             You can see your own {units.length === 1 ? "unit" : `${units.length} units`},
@@ -150,13 +193,19 @@ export default function PortalPage() {
             <StatCard
               label="Balance owing"
               value={money(dash.total_balance, 0)}
-              tone={dash.total_balance > 0 ? "danger" : "success"}
+              tone={Number(dash.total_balance) > 0 ? "danger" : "success"}
               hint={dash.total_balance > 0 ? "Payment overdue" : "You are up to date"}
               icon={Wallet}
             />
             <StatCard
               label="Next payment"
-              value={money(dash.next_due_amount, 0)}
+              value={
+                isLive
+                  ? dash.next_due_date
+                    ? shortDate(dash.next_due_date)
+                    : "—"
+                  : money(dash.next_due_amount, 0)
+              }
               hint={`Due ${shortDate(dash.next_due_date)}`}
               tone="primary"
               icon={Receipt}
@@ -168,14 +217,18 @@ export default function PortalPage() {
             />
             <StatCard
               label="Open requests"
-              value={dash.open_tickets}
+              value={
+                isLive
+                  ? tickets.filter((t) => t.status !== "CLOSED").length
+                  : dash.open_tickets
+              }
               hint="Reported by you"
               icon={Ticket}
             />
           </StatGrid>
         )}
 
-        {dash?.total_balance > 0 && (
+        {Number(dash?.total_balance) > 0 && (
           <Card className="flex flex-wrap items-center justify-between gap-4 border-primary/30 bg-accent/40">
             <div>
               <p className="text-sm font-semibold">

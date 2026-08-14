@@ -8,8 +8,16 @@ import { tenantData } from "@/lib/mock-data/store";
 import { Badge, Button, Card } from "@/components/ui";
 import { ThemeToggle } from "@/components/theme";
 import { cn } from "@/lib/utils";
+import { isLive } from "@/lib/api";
+import LivePortalLogin from "./live-portal-login";
 
 export default function PortalLoginPage() {
+  // In live mode use real backend portal auth; mock mode stays as the demo persona picker.
+  if (isLive) return <LivePortalLogin />;
+  return <MockPortalLogin />;
+}
+
+function MockPortalLogin() {
   const router = useRouter();
   const [tenantId, setTenantId] = useState(TENANTS[0].id);
   const [open, setOpen] = useState(false);

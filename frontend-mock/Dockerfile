@@ -12,6 +12,12 @@ COPY . .
 # Defaults to localhost for dev; production builds pass the public API URL.
 ARG NEXT_PUBLIC_API_BASE="http://localhost:8000/api/v1"
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+# Without this arg Railway cannot pass NEXT_PUBLIC_DATA_MODE into the build, and
+# a build that can't see it compiles the in-browser demo into the bundle — a
+# live-looking app that never contacts the API. Default stays mock: an
+# unconfigured build should remain the safe, self-contained demo (AGENTS.md).
+ARG NEXT_PUBLIC_DATA_MODE="mock"
+ENV NEXT_PUBLIC_DATA_MODE=$NEXT_PUBLIC_DATA_MODE
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

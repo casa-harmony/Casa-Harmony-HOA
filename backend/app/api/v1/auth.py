@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""Authentication and session management."""
 
 import uuid
 from datetime import datetime, timezone
@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db, get_elevated_db
 from app.core.deps import get_current_user, get_principal, Principal
+from app.core.rate_limit import limiter
 from app.core.security import (
     create_access_token,
     create_password_reset_token,
+    create_refresh_token,
     decode_token,
     hash_password,
     password_version,
@@ -27,6 +29,7 @@ from app.schemas.auth import (
     MeResponse,
     MfaEnrollResponse,
     MfaVerifyRequest,
+    RefreshTokenRequest,
     ResetPasswordRequest,
     TenantMembershipOut,
 )
@@ -36,6 +39,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit("10/minute")
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_elevated_db)):
     user = db.execute(
         select(User).where(User.email == payload.email.lower())
@@ -76,6 +80,8 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_ele
         subject=str(user.id),
         extra_claims={"email": user.email, "is_superadmin": user.is_superadmin},
     )
+    refresh_token = create_refresh_token(subject=str(user.id))
+    
     user.last_login_at = datetime.now(timezone.utc)
     audit.record(
         db,
@@ -87,6 +93,69 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_ele
     )
     return LoginResponse(
         access_token=token,
+        refresh_token=refresh_token,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user_id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_superadmin=user.is_superadmin,
+        must_change_password=user.must_change_password,
+        memberships=memberships,
+    )
+
+
+@router.post("/refresh", response_model=LoginResponse)
+@limiter.limit("10/minute")
+def refresh_session(payload: RefreshTokenRequest, request: Request, db: Session = Depends(get_elevated_db)):
+    try:
+        claims = decode_token(payload.refresh_token)
+    except Exception:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired refresh token")
+        
+    if claims.get("scope") != "refresh":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token scope")
+        
+    user = db.get(User, uuid.UUID(claims["sub"]))
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+
+    # Fetch memberships
+    rows = db.execute(
+        select(Membership, Tenant, Role)
+        .join(Tenant, Tenant.id == Membership.tenant_id)
+        .join(Role, Role.id == Membership.role_id)
+        .where(Membership.user_id == user.id, Membership.is_active.is_(True))
+    ).all()
+    memberships = [
+        TenantMembershipOut(
+            tenant_id=t.id,
+            tenant_name=t.name,
+            tenant_slug=t.slug,
+            role_code=r.code,
+            role_name=r.name,
+            scope="tenant",
+            is_demo=t.is_demo,
+        )
+        for (_m, t, r) in rows
+    ]
+
+    new_access_token = create_access_token(
+        subject=str(user.id),
+        extra_claims={"email": user.email, "is_superadmin": user.is_superadmin},
+    )
+    new_refresh_token = create_refresh_token(subject=str(user.id))
+
+    audit.record(
+        db,
+        action="TOKEN_REFRESH",
+        entity_type="User",
+        entity_id=user.id,
+        ip_address=getattr(request.state, "client_ip", None),
+    )
+
+    return LoginResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user_id=user.id,
         email=user.email,
@@ -209,7 +278,8 @@ def change_password(
 
 
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_elevated_db)):
+@limiter.limit("5/minute")
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_elevated_db)):
     """Email a password-reset link. Always returns 200 (no account enumeration)."""
     user = db.execute(
         select(User).where(User.email == payload.email.lower())
@@ -232,7 +302,8 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_el
 
 
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_elevated_db)):
+@limiter.limit("5/minute")
+def reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_elevated_db)):
     """Complete a reset using the emailed token (single-use via password version)."""
     try:
         claims = decode_token(payload.token)

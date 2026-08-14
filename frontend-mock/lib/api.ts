@@ -38,6 +38,8 @@ export const isLive = DATA_MODE === "live";
 const TOKEN_KEY = "casa_token";
 let memoryToken: string | null = null;
 
+const REFRESH_KEY = "casa_refresh_token";
+
 export function setAuthToken(token: string | null): void {
   memoryToken = token;
   if (typeof window === "undefined") return;
@@ -50,6 +52,49 @@ export function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
   memoryToken = window.localStorage.getItem(TOKEN_KEY);
   return memoryToken;
+}
+
+export function setRefreshToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  if (token) window.localStorage.setItem(REFRESH_KEY, token);
+  else window.localStorage.removeItem(REFRESH_KEY);
+}
+
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(REFRESH_KEY);
+}
+
+/** Drop both tokens — used on sign-out and when a refresh fails. */
+export function clearSessionTokens(): void {
+  setAuthToken(null);
+  setRefreshToken(null);
+}
+
+/**
+ * One silent attempt to swap the refresh token for a fresh access token.
+ * Returns true only when the server issued new tokens, which the caller then
+ * uses to retry the original request.
+ */
+async function refreshSession(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  try {
+    const res = await fetch(buildUrl("/auth/refresh"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      credentials: "omit",
+    });
+    if (!res.ok) return false;
+    const json = await res.json();
+    if (!json?.access_token) return false;
+    setAuthToken(json.access_token);
+    setRefreshToken(json.refresh_token ?? null);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Called when the server rejects our token, so the UI can bounce to /login. */
@@ -101,7 +146,7 @@ function messageFromDetail(detail: unknown, fallback: string): string {
   return fallback;
 }
 
-async function liveFetch<T>(path: string, opts: FetchOpts): Promise<T> {
+async function liveFetch<T>(path: string, opts: FetchOpts, retried = false): Promise<T> {
   const method = (opts.method ?? "GET").toUpperCase();
   const hasBody = opts.body !== undefined && method !== "GET";
 
@@ -122,8 +167,18 @@ async function liveFetch<T>(path: string, opts: FetchOpts): Promise<T> {
   }
 
   if (res.status === 401) {
-    setAuthToken(null);
-    onUnauthorized?.();
+    // Calls carrying an explicit token (e.g. the resident portal's own JWT) are
+    // not part of the staff session — leave them to their caller. Everything
+    // else gets one silent refresh before the session is torn down, so a user
+    // mid-work is not bounced to the sign-in screen by an expired access token.
+    const sessionCall = !opts.token;
+    if (sessionCall && !retried && (await refreshSession())) {
+      return liveFetch<T>(path, opts, true);
+    }
+    if (sessionCall) {
+      clearSessionTokens();
+      onUnauthorized?.();
+    }
   }
 
   if (!res.ok) {

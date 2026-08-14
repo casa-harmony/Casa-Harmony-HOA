@@ -50,6 +50,21 @@ def create_password_reset_token(user_id: uuid.UUID, password_hash: str, minutes:
 
 
 # --- JWT -------------------------------------------------------------------
+def create_refresh_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(days=7)
+    payload: dict[str, Any] = {
+        "sub": subject,
+        "iat": now,
+        "exp": exp,
+        "jti": str(uuid.uuid4()),
+        "scope": "refresh",
+    }
+    if extra_claims:
+        payload.update(extra_claims)
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
 def create_access_token(
     subject: str,
     extra_claims: dict[str, Any] | None = None,

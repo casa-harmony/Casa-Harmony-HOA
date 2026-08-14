@@ -75,7 +75,7 @@ export default function PeriodsPage() {
                 {MONTHS.map((m) => <option key={m}>{m}</option>)}
               </select>
               <Input className="w-24" value={newPeriod.year} onChange={(e) => setNewPeriod({ ...newPeriod, year: e.target.value })} />
-              <Button variant="secondary" onClick={() => act(`${newPeriod.month}-${newPeriod.year}`, "open")}
+              <Button variant="secondary" onClick={() => action(`${newPeriod.month}-${newPeriod.year}`, "open")}
                 disabled={busy !== null}>Open</Button>
             </div>
           </div>
@@ -113,9 +113,9 @@ export default function PeriodsPage() {
                     <div className="flex justify-end gap-2">
                       <Button variant="secondary" onClick={() => downloadFile(`/periods/${p.period_name}/trial-balance/export`, token!, activeTenantId!, `tb_${p.period_name}.xlsx`)}>TB</Button>
                       {p.status !== "CLOSED" ? (
-                        <Button variant="secondary" onClick={() => act(p.period_name, "close")} disabled={busy !== null}>Close</Button>
+                        <Button variant="secondary" onClick={() => action(p.period_name, "close")} disabled={busy !== null}>Close</Button>
                       ) : (
-                        <Button variant="secondary" onClick={() => act(p.period_name, "reopen")} disabled={busy !== null}>Reopen</Button>
+                        <Button variant="secondary" onClick={() => action(p.period_name, "reopen")} disabled={busy !== null}>Reopen</Button>
                       )}
                     </div>
                   </td>

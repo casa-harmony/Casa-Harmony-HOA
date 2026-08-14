@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { Check, Building2, KeyRound, Plus, ShieldCheck, UserCog, Users, X } from "lucide-react";
 import { useAuth } from "../../providers";
 import { useApi, useMutate } from "@/lib/use-api";
-import { TENANTS } from "@/lib/mock-data/seed";
 import { ALL_PERMISSIONS, PERMISSIONS, ROLES, permsFor, roleHas } from "@/lib/rbac";
 import { Alert, Badge, Button, Card, Input, Label, Modal, Select } from "@/components/ui";
 import {
@@ -16,6 +15,7 @@ import { cn } from "@/lib/utils";
 export default function UsersPage() {
   const { can, refresh, user: userSession } = useAuth();
   const { data: users } = useApi<any[]>("/users", []);
+  const { data: communities } = useApi<any[]>("/tenants", []);
   const { mutate, busy } = useMutate();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export default function UsersPage() {
     title: "Community Administrator",
     role_code: "HOA_ADMIN",
     is_superadmin: false,
-    tenant_ids: [TENANTS[0]?.id || "tenant-1"],
+    tenant_ids: [] as string[],
   });
 
   const handleCreateUser = async () => {
@@ -38,11 +38,15 @@ export default function UsersPage() {
       await mutate("/users", "POST", {
         full_name: form.full_name,
         email: form.email,
-        title: form.title,
+        title: form.title, // mock transport reads `title`; the live API takes `job_title`
+        job_title: form.title,
         role_code: form.role_code,
         is_superadmin: form.is_superadmin,
         tenant_ids: form.tenant_ids,
-        password: "TempPassword123!",
+        tenant_id: form.tenant_ids[0] || null,
+        // Invitation, not a typed password: the server emails a one-time
+        // set-password link (single-use reset token).
+        send_invite: true,
       });
       setCreating(false);
       setFlash(`User '${form.full_name}' created successfully as ${form.role_code.replace(/_/g, " ")}.`);
@@ -54,7 +58,7 @@ export default function UsersPage() {
         title: "Community Administrator",
         role_code: "HOA_ADMIN",
         is_superadmin: false,
-        tenant_ids: [TENANTS[0]?.id || "tenant-1"],
+        tenant_ids: [] as string[],
       });
     } catch (e: any) {
       setFlash(`Error creating user: ${e?.message ?? "Failed"}`);
@@ -93,7 +97,9 @@ export default function UsersPage() {
     {
       key: "title",
       header: "Job title",
-      render: (u) => <span className="text-xs text-muted-foreground">{u.title}</span>,
+      render: (u) => (
+        <span className="text-xs text-muted-foreground">{u.job_title ?? u.title}</span>
+      ),
     },
     {
       key: "role",
@@ -111,7 +117,7 @@ export default function UsersPage() {
         <div className="flex flex-wrap gap-1">
           {(u.tenant_ids || []).map((id: string) => (
             <Badge key={id} tone="neutral" className="text-[10px]">
-              {TENANTS.find((t) => t.id === id)?.name || id}
+              {communities.find((t: any) => t.id === id)?.name || id}
             </Badge>
           ))}
         </div>
@@ -170,7 +176,7 @@ export default function UsersPage() {
       <StatGrid>
         <StatCard label="Staff accounts" value={users.length} tone="primary" icon={Users} />
         <StatCard label="Roles in use" value={new Set(users.map((u) => u.role_code)).size} icon={ShieldCheck} />
-        <StatCard label="Communities" value={TENANTS.length} icon={Building2} />
+        <StatCard label="Communities" value={communities.length} icon={Building2} />
         <StatCard label="Permissions defined" value={ALL_PERMISSIONS.length} icon={KeyRound} />
       </StatGrid>
 
@@ -314,7 +320,7 @@ export default function UsersPage() {
               </p>
               <div className="space-y-2">
                 {user.tenant_ids.map((id: string) => {
-                  const t = TENANTS.find((x) => x.id === id);
+                  const t = communities.find((x: any) => x.id === id);
                   return (
                     <div key={id} className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2.5">
                       <div className="min-w-0">
@@ -415,7 +421,7 @@ export default function UsersPage() {
                   value={form.tenant_ids[0] || ""}
                   onChange={(e) => setForm({ ...form, tenant_ids: [e.target.value] })}
                 >
-                  {TENANTS.map((t) => (
+                  {communities.map((t: any) => (
                     <option key={t.id} value={t.id}>
                       {t.name}
                     </option>

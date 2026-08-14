@@ -27,8 +27,8 @@ The live Neon database currently holds one community and two staff logins
 
 | Email | Password | Role | Can do |
 |---|---|---|---|
-| `superadmin@casaharmony.ai` | `ChangeMe!Superadmin1` | **SUPERADMIN** | Create communities, manage all HOAs, change sysadmin password |
-| `sysadmin@casaharmony.ai` | `ChangeMe!Sysadmin1` | **SYSADMIN** | Run Casa Harmony HOA: add/manage users, residents, finances, everything except creating new HOAs |
+| `superadmin@casaharmony.ai` | `<See .env / provisioning output>` | **SUPERADMIN** | Create communities, manage all HOAs, change sysadmin password |
+| `sysadmin@casaharmony.ai` | `<See .env / provisioning output>` | **SYSADMIN** | Run Casa Harmony HOA: add/manage users, residents, finances, everything except creating new HOAs |
 
 **Change both passwords immediately** — these are factory defaults.
 
@@ -38,7 +38,7 @@ SUPERADMIN is the only role that can create a community. Use it to spin up a new
 
 | Username | HOA | Password | Unit |
 |---|---|---|---|
-| `owner1` | `casa-harmony` | `ChangeMe!Owner1` | Demo Homeowner 1 |
+| `owner1` | `casa-harmony` | `<See .env / provisioning output>` | Demo Homeowner 1 |
 
 Residents authenticate with **HOA slug + username + password**, then receive a one-time code (in development, returned in the API response as `dev_otp`; in production, sent by email or SMS).
 

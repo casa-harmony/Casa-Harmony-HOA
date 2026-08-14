@@ -34,14 +34,14 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
 
     # --- Security ---
-    SECRET_KEY: str = "CHANGE_ME"
+    SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     ALGORITHM: str = "HS256"
-    FIELD_ENCRYPTION_KEY: str = ""
+    FIELD_ENCRYPTION_KEY: str
 
     # --- Bootstrap ---
     SUPERADMIN_EMAIL: str = "superadmin@casaharmony.ai"
-    SUPERADMIN_PASSWORD: str = "ChangeMe!Superadmin1"
+    SUPERADMIN_PASSWORD: str | None = None
 
     # --- Nightly GL posting scheduler (in-process; off by default) ---
     ENABLE_SCHEDULER: bool = False
@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # payment must settle through /portal/pay/checkout + the gateway webhook, or
     # anyone could clear their own balance for free. Off in production unless a
     # deployment explicitly opts in.
-    ALLOW_DIRECT_PORTAL_PAYMENT: bool = True
+    ALLOW_DIRECT_PORTAL_PAYMENT: bool = False
 
     # --- Resident MFA (email/SMS one-time codes) ---
     OTP_TTL_MINUTES: int = 10

@@ -29,8 +29,15 @@ fi
 echo "🏗  Running database migrations..."
 DATABASE_URL="${MIGRATION_DB_URL:-${DATABASE_URL:-}}" alembic upgrade head
 
-echo "🌱 Seeding baseline data..."
-python -m scripts.seed || echo "(seed skipped/failed — continuing)"
+# Seeding is an explicit opt-in: it creates the SUPERADMIN and (outside
+# production) the demo HOA. A requested seed that fails must stop the boot —
+# a half-seeded database is worse than none — so `set -e` lets it exit here.
+if [ "${RUN_SEED:-false}" = "true" ]; then
+  echo "🌱 Seeding baseline data (RUN_SEED=true)..."
+  python -m scripts.seed
+else
+  echo "🌱 Skipping seed (set RUN_SEED=true to seed on boot)."
+fi
 
 # Bind to $PORT when the platform injects one (Render/Railway/Fly), else 8000.
 APP_PORT="${PORT:-8000}"

@@ -6,7 +6,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../providers";
 import { useApi, useMutate } from "@/lib/use-api";
-import { TENANTS } from "@/lib/mock-data/seed";
 import { Alert, Badge, Button, Card, Input, Label, Modal, Select } from "@/components/ui";
 import {
   DetailSheet, EmptyState, Facts, PageHeader, PageShell, SectionGuide, StatCard, StatGrid,
@@ -34,10 +33,12 @@ export default function TenantsPage() {
     state: "TX",
     timezone: "America/Chicago",
     kind: "Gated Single-Family Community",
+    admin_email: "",
+    admin_password: "",
   });
 
   const handleCreate = async () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !form.admin_email.trim() || form.admin_password.length < 8) return;
     try {
       await mutate("/tenants", "POST", {
         name: form.name,
@@ -49,6 +50,8 @@ export default function TenantsPage() {
         state: form.state,
         timezone: form.timezone,
         kind: form.kind,
+        admin_email: form.admin_email.trim(),
+        admin_password: form.admin_password,
         create_default_coa: true,
       });
       setCreating(false);
@@ -64,6 +67,8 @@ export default function TenantsPage() {
         state: "TX",
         timezone: "America/Chicago",
         kind: "Gated Single-Family Community",
+        admin_email: "",
+        admin_password: "",
       });
     } catch (e: any) {
       setFlash(`Error creating community: ${e?.message ?? "Failed"}`);
@@ -308,7 +313,15 @@ export default function TenantsPage() {
               <Button variant="secondary" onClick={() => setCreating(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleCreate} disabled={!form.name.trim() || busy === "/tenants"}>
+              <Button
+                onClick={handleCreate}
+                disabled={
+                  !form.name.trim() ||
+                  !form.admin_email.trim() ||
+                  form.admin_password.length < 8 ||
+                  busy === "/tenants"
+                }
+              >
                 {busy === "/tenants" ? "Creating..." : "Create community"}
               </Button>
             </>
@@ -324,6 +337,28 @@ export default function TenantsPage() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 autoFocus
               />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="cae">First admin email</Label>
+                <Input
+                  id="cae"
+                  type="email"
+                  placeholder="admin@willowcreek.org"
+                  value={form.admin_email}
+                  onChange={(e) => setForm({ ...form, admin_email: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="cap">First admin password</Label>
+                <Input
+                  id="cap"
+                  type="password"
+                  placeholder="8+ characters — they'll change it on first login"
+                  value={form.admin_password}
+                  onChange={(e) => setForm({ ...form, admin_password: e.target.value })}
+                />
+              </div>
             </div>
             <div>
               <Label htmlFor="cl">Legal name</Label>

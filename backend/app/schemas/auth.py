@@ -32,6 +32,7 @@ class TenantMembershipOut(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
     user_id: uuid.UUID
@@ -56,6 +57,10 @@ class MeResponse(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1)
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 
 class ForgotPasswordRequest(BaseModel):

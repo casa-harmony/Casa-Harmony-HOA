@@ -69,12 +69,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (auth.ready && !auth.signedIn) router.replace("/login");
   }, [auth.ready, auth.signedIn, router]);
 
+  // A password the server told the user to change (must_change_password) locks
+  // every API call behind PASSWORD_CHANGE_REQUIRED except /auth/change-password,
+  // so route those users straight to the one screen that works.
+  useEffect(() => {
+    if (
+      auth.ready &&
+      auth.signedIn &&
+      auth.user?.mustChangePassword &&
+      pathname !== "/change-password"
+    ) {
+      router.replace("/change-password");
+    }
+  }, [auth.ready, auth.signedIn, auth.user?.mustChangePassword, pathname, router]);
+
   useEffect(() => setMobileOpen(false), [pathname]);
 
   if (!auth.ready || !auth.signedIn) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Spinner label="Preparing the demo…" />
+        <Spinner label="Loading…" />
       </div>
     );
   }

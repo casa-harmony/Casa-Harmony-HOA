@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,7 +14,7 @@ from app.core.deps import (
     require_active_tenant,
     require_permission,
 )
-from app.core.security import hash_password
+from app.core.security import create_password_reset_token, hash_password
 from app.models.identity import (
     Membership,
     Permission,
@@ -33,9 +34,37 @@ from app.schemas.rbac import (
     UserOut,
     MembershipUpdate,
 )
-from app.services import audit
+from app.services import audit, notifications
 
 router = APIRouter(tags=["rbac"])
+
+
+def _user_out(user: User) -> UserOut:
+    """Serialize a user with the derived fields the admin screens render.
+
+    role_code / tenant_ids are computed from the user's active memberships —
+    the server decides what the UI may show, and a user with several grants
+    keeps every tenant on the listing while role_code reflects the first.
+    """
+    active = [m for m in user.memberships if m.is_active]
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        job_title=user.job_title,
+        is_superadmin=user.is_superadmin,
+        is_active=user.is_active,
+        created_at=user.created_at,
+        memberships=[
+            MembershipOut(
+                id=m.id, user_id=m.user_id, tenant_id=m.tenant_id, role_id=m.role_id,
+                is_active=m.is_active, role_code=m.role.code if m.role else None,
+            )
+            for m in user.memberships
+        ],
+        role_code=active[0].role.code if active and active[0].role else None,
+        tenant_ids=[m.tenant_id for m in active],
+    )
 
 
 def _role_out(role: Role) -> RoleOut:
@@ -120,18 +149,18 @@ def list_users(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("user.manage")),
 ):
-    tenant_id = request.headers.get("X-Tenant-Id")
-    if principal.is_superadmin and not tenant_id:
-        # Platform-wide listing (explicitly requested by omitting the header)
-        return db.execute(select(User).order_by(User.email)).scalars().all()
-    
-    # Scoped to active tenant
-    return db.execute(
-        select(User)
-        .join(Membership, Membership.user_id == User.id)
-        .where(Membership.tenant_id == principal.tenant_id)
-        .order_by(User.email)
-    ).scalars().unique().all()
+    # principal.tenant_id is derived from X-Tenant-Id upstream (get_principal), so
+    # a SUPERADMIN listing without the header gets the platform-wide view.
+    if principal.is_superadmin and principal.tenant_id is None:
+        rows = db.execute(select(User).order_by(User.email)).scalars().all()
+    else:
+        rows = db.execute(
+            select(User)
+            .join(Membership, Membership.user_id == User.id)
+            .where(Membership.tenant_id == principal.tenant_id)
+            .order_by(User.email)
+        ).scalars().unique().all()
+    return [_user_out(u) for u in rows]
 
 
 @router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -146,11 +175,23 @@ def create_user(
     if db.execute(select(User).where(User.email == payload.email.lower())).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
 
+    if not payload.password and not payload.send_invite:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Provide a password or set send_invite to email a set-password link",
+        )
+    # An invited user gets an unusable random hash; the emailed reset token is
+    # bound to its password version, so it dies the moment they set a password.
+    hashed = (
+        hash_password(payload.password)
+        if payload.password
+        else hash_password(secrets.token_urlsafe(32))
+    )
     user = User(
         email=payload.email.lower(),
         full_name=payload.full_name,
         job_title=payload.job_title,
-        hashed_password=hash_password(payload.password),
+        hashed_password=hashed,
         is_superadmin=payload.is_superadmin,
         must_change_password=True,  # temp password → force change on first login
         created_by=principal.user.id,
@@ -158,12 +199,56 @@ def create_user(
     )
     db.add(user)
     db.flush()
+
+    # Grant the requested community role in the same call, so the UI's
+    # "create user + assign role + assign community" form produces an account
+    # that can actually sign in somewhere instead of a zero-membership ghost.
+    if not payload.is_superadmin and payload.role_code:
+        tenant_id = payload.tenant_id or principal.tenant_id
+        if tenant_id is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "role_code was given but no tenant — pick a community to grant access to",
+            )
+        if not principal.is_superadmin and tenant_id != principal.tenant_id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Cannot grant membership outside your HOA"
+            )
+        role = db.execute(
+            select(Role).where(
+                Role.code == payload.role_code,
+                (Role.tenant_id == tenant_id) | (Role.tenant_id.is_(None)),
+            )
+        ).scalars().first()
+        if role is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"Role '{payload.role_code}' not found"
+            )
+        existing = db.execute(
+            select(Membership).where(
+                Membership.user_id == user.id,
+                Membership.tenant_id == tenant_id,
+                Membership.role_id == role.id,
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            db.add(Membership(
+                tenant_id=tenant_id, user_id=user.id, role_id=role.id,
+                is_active=True, created_by=principal.user.id, updated_by=principal.user.id,
+            ))
+            db.flush()
+
     audit.record(
         db, action="CREATE", entity_type="User", entity_id=user.id,
         after={"email": user.email}, tenant_id=principal.tenant_id,
         ip_address=getattr(request.state, "client_ip", None),
     )
-    return user
+
+    if payload.send_invite and not payload.password:
+        token = create_password_reset_token(user.id, user.hashed_password)
+        notifications.send_password_invite(user.email, token)
+
+    return _user_out(user)
 
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user(
@@ -181,7 +266,7 @@ def get_user(
         if not has_access:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
             
-    return user
+    return _user_out(user)
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
@@ -219,7 +304,7 @@ def update_user(
         after={"email": user.email, "is_active": user.is_active}, tenant_id=principal.tenant_id,
         ip_address=getattr(request.state, "client_ip", None),
     )
-    return user
+    return _user_out(user)
 
 
 @router.post("/users/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)

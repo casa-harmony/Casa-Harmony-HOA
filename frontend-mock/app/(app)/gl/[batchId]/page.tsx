@@ -20,6 +20,7 @@ export default function GlBatchReviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
   async function load() {
     if (!token || !activeTenantId) return;
@@ -56,7 +57,7 @@ export default function GlBatchReviewPage() {
   }, [token, activeTenantId, batchId]);
 
   async function handleAction(verb: "submit" | "approve" | "post") {
-    setBusy(verb); setError(null);
+    setBusy(true); setError(null); setMsg(null);
     try {
       if (verb === "submit") await apiFetch(`/gl/batches/${batchId}/submit`, { method: "POST", token, tenantId: activeTenantId });
       else if (verb === "approve") await apiFetch(`/gl/batches/${batchId}/approve`, { method: "POST", token, tenantId: activeTenantId });
@@ -93,17 +94,18 @@ export default function GlBatchReviewPage() {
             ⬇ xlsx
           </Button>
           {batch.status === "DRAFT" && (
-            <Button onClick={() => action("submit")} disabled={busy}>Submit</Button>
+            <Button onClick={() => handleAction("submit")} disabled={busy}>Submit</Button>
           )}
           {batch.status === "SUBMITTED" && (
-            <Button onClick={() => action("approve")} disabled={busy}>Approve</Button>
+            <Button onClick={() => handleAction("approve")} disabled={busy}>Approve</Button>
           )}
           {batch.status === "APPROVED" && (
-            <Button onClick={() => action("post")} disabled={busy}>Post to GL</Button>
+            <Button onClick={() => handleAction("post")} disabled={busy}>Post to GL</Button>
           )}
         </div>
       </div>
 
+      {msg && <Alert kind="success">{msg}</Alert>}
       {error && <Alert kind="error">{error}</Alert>}
 
       <Card>

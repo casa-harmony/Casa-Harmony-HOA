@@ -10,6 +10,9 @@ from fastapi.responses import JSONResponse
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.middleware import TenantContextMiddleware
+from app.core.rate_limit import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("casa-harmony")
@@ -25,10 +28,13 @@ app = FastAPI(
     docs_url="/docs",
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # --- Security: CORS (tighten origins in production) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS or ["http://localhost:3000"],
+    allow_origins=settings.BACKEND_CORS_ORIGINS if settings.ENVIRONMENT == "production" else (settings.BACKEND_CORS_ORIGINS or ["http://localhost:3000"]),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

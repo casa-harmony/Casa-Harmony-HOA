@@ -34,7 +34,7 @@ def get_tenant_readiness(db: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
         "completed": identity_ok,
         "missing": missing,
         "next_action_label": "Add an administrator",
-        "next_action_route": "/settings/users",
+        "next_action_route": "/users",
     })
 
     # 2. LEDGER
@@ -68,7 +68,7 @@ def get_tenant_readiness(db: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
         "completed": ledger_ok,
         "missing": ledger_missing,
         "next_action_label": "Configure Chart of Accounts",
-        "next_action_route": "/accounting/coa",
+        "next_action_route": "/coa",
     })
 
     # 3. CALENDAR
@@ -83,7 +83,7 @@ def get_tenant_readiness(db: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
         "completed": calendar_ok,
         "missing": [] if calendar_ok else ["No OPEN accounting period for the current year"],
         "next_action_label": "Open fiscal period",
-        "next_action_route": "/accounting/periods",
+        "next_action_route": "/periods",
     })
 
     # 4. MASTERS
@@ -106,7 +106,7 @@ def get_tenant_readiness(db: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
         "completed": masters_ok,
         "missing": masters_missing,
         "next_action_label": "Configure master data",
-        "next_action_route": "/settings/masters",
+        "next_action_route": "/vendors",
     })
 
     # 5. SUBLEDGER
@@ -128,7 +128,7 @@ def get_tenant_readiness(db: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
         "completed": subledger_ok,
         "missing": subledger_missing,
         "next_action_label": "Import homeowners",
-        "next_action_route": "/receivables/homeowners",
+        "next_action_route": "/residents",
     })
 
     # 6. LIVE
@@ -148,7 +148,7 @@ def get_tenant_readiness(db: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
         "completed": live_ok,
         "missing": live_missing,
         "next_action_label": "Complete go-live checklist",
-        "next_action_route": "/settings/golive",
+        "next_action_route": "/go-live",
     })
 
     # Determine current stage

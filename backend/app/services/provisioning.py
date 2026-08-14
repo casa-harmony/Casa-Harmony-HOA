@@ -155,19 +155,19 @@ def provision_tenant(
 
     # 6. AP config
     term = PaymentTerm(
-        tenant_id=tenant.id, code="NET30", name="Net 30", description="Pay within 30 days",
-        due_days=30, is_active=True, created_by=actor_id, updated_by=actor_id
+        tenant_id=tenant.id, name="Net 30", description="Pay within 30 days",
+        due_days=30, active=True, created_by=actor_id, updated_by=actor_id
     )
     db.add(term)
     
     vtype = VendorType(
-        tenant_id=tenant.id, code="LANDSCAPING", name="Landscaping", is_active=True,
+        tenant_id=tenant.id, code="LANDSCAPING", name="Landscaping", active=True,
         created_by=actor_id, updated_by=actor_id
     )
     db.add(vtype)
     
     pmethod = PaymentMethod(
-        tenant_id=tenant.id, code="CHECK", name="Check", is_active=True,
+        tenant_id=tenant.id, code="CHECK", name="Check", method_type="CHECK", active=True,
         created_by=actor_id, updated_by=actor_id
     )
     db.add(pmethod)
@@ -218,8 +218,8 @@ def provision_tenant(
     # 12. Audit record of the provisioning
     audit = AuditLog(
         tenant_id=tenant.id,
-        user_id=actor_id,
-        entity_name="Tenant",
+        actor_id=actor_id,
+        entity_type="Tenant",
         entity_id=str(tenant.id),
         action="PROVISION",
         changes={"slug": slug, "name": name, "create_default_coa": create_default_coa},

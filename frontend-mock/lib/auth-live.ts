@@ -12,7 +12,7 @@
  *     grants nothing on its own.
  */
 
-import { apiFetch, setAuthToken } from "./api";
+import { apiFetch, setAuthToken, setRefreshToken } from "./api";
 
 export interface LiveMembership {
   tenant_id: string;
@@ -26,6 +26,7 @@ export interface LiveMembership {
 
 export interface LoginResponse {
   access_token: string;
+  refresh_token?: string;
   token_type: string;
   expires_in: number;
   user_id: string;
@@ -65,6 +66,7 @@ export async function login(
     body: { email, password, mfa_code: mfaCode || null },
   });
   setAuthToken(res.access_token);
+  setRefreshToken(res.refresh_token ?? null);
   return res;
 }
 
@@ -94,4 +96,5 @@ export async function changePassword(
 
 export function logout(): void {
   setAuthToken(null);
+  setRefreshToken(null);
 }

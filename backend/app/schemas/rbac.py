@@ -37,8 +37,13 @@ class UserCreate(BaseModel):
     email: EmailStr
     full_name: str | None = None
     job_title: str | None = None
-    password: str = Field(min_length=8, max_length=128)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     is_superadmin: bool = False
+    # Grant the first community role in the same call (matches the admin UI).
+    role_code: str | None = None
+    tenant_id: uuid.UUID | None = None
+    # Invite instead of a typed password: email a one-time set-password link.
+    send_invite: bool = False
 
 class UserUpdate(BaseModel):
     full_name: str | None = None
@@ -52,14 +57,19 @@ class UserOut(BaseModel):
     # Plain str (not EmailStr): output must serialize already-stored values,
     # including anonymized addresses (e.g. ...@anonymized.invalid from CCPA erasure).
     email: str
-    full_name: str | None
-    job_title: str | None
+    full_name: str | None = None
+    job_title: str | None = None
     is_superadmin: bool
     is_active: bool
     created_at: datetime
     
     # We will expand memberships for GET /users/{id}
     memberships: list["MembershipOut"] = []
+
+    # Derived view fields for the admin screens (populated by _user_out; the
+    # server decides them from the user's active memberships).
+    role_code: str | None = None
+    tenant_ids: list[uuid.UUID] = []
 
     model_config = {"from_attributes": True}
 
@@ -78,6 +88,8 @@ class MembershipOut(BaseModel):
     user_id: uuid.UUID
     tenant_id: uuid.UUID
     role_id: uuid.UUID
+    is_active: bool = True
+    role_code: str | None = None  # populated by _user_out; None for ORM serialization
     is_active: bool
 
     model_config = {"from_attributes": True}
