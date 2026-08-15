@@ -208,6 +208,8 @@ export function Badge({
 
 /* ------------------------------------------------------------------- Modal */
 
+import { createPortal } from "react-dom";
+
 export function Modal({
   open,
   onClose,
@@ -225,6 +227,12 @@ export function Modal({
   footer?: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -236,7 +244,7 @@ export function Modal({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
   const widths = {
     sm: "max-w-sm",
@@ -245,9 +253,9 @@ export function Modal({
     xl: "max-w-4xl",
   }[size];
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -285,7 +293,8 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
