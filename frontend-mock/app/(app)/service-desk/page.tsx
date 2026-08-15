@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowRight, Building2, CheckCircle2, MessageSquare,
   Paperclip, Plus, Send, Ticket as TicketIcon, Upload, User,
@@ -22,8 +22,8 @@ const PRIORITIES = ["LOW", "MEDIUM", "HIGH"];
 const STATUSES = ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"];
 
 export default function ServiceDeskPage() {
-  const { persona, can } = useAuth();
-  const { data: tickets, loading } = useApi<any[]>("/service-desk/tickets", []);
+  const { persona, can, activeTenantId } = useAuth();
+  const { data: tickets, loading, reload: reloadTickets } = useApi<any[]>("/service-desk/tickets", []);
   const { data: vendors } = useApi<any[]>("/vendors", []);
   const { data: homeowners } = useApi<any[]>("/subledger/homeowners", []);
   const { mutate } = useMutate();
@@ -275,11 +275,16 @@ export default function ServiceDeskPage() {
         <TicketDrawer
           ticket={ticket}
           vendors={vendors}
-          onClose={() => setSelected(null)}
-          mutate={mutate}
-          notify={notify}
           canManage={can("ticket.manage")}
           actor={persona?.full_name ?? "Staff"}
+          activeTenantId={activeTenantId ?? ""}
+          onClose={() => setSelected(null)}
+          mutate={mutate}
+          notify={(m) => {
+            setFlash(m);
+            setTimeout(() => setFlash(null), 5000);
+          }}
+          reloadTickets={reloadTickets}
         />
       )}
 
@@ -299,10 +304,67 @@ export default function ServiceDeskPage() {
   );
 }
 
+function AuthImage({ url, alt, className, activeTenantId }: { url: string, alt: string, className?: string, activeTenantId: string }) {
+  const [src, setSrc] = useState<string>("");
+  const [preview, setPreview] = useState(false);
+  
+  useEffect(() => {
+    let active = true;
+    const token = localStorage.getItem("casa_token");
+    fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-Tenant-Id": activeTenantId,
+      }
+    })
+      .then(r => r.blob())
+      .then(blob => {
+        if (active) setSrc(URL.createObjectURL(blob));
+      })
+      .catch(console.error);
+    return () => { active = false; };
+  }, [url]);
+
+  if (!src) return <div className="h-24 animate-pulse bg-muted/50 rounded-md" />;
+  
+  return (
+    <>
+      <button 
+        type="button" 
+        onClick={() => setPreview(true)}
+        className="block w-full text-left"
+      >
+        <img 
+          src={src} 
+          alt={alt} 
+          className={`${className} cursor-pointer transition-opacity hover:opacity-90`} 
+        />
+      </button>
+
+      {preview && (
+        <Modal 
+          open 
+          onClose={() => setPreview(false)} 
+          title={alt} 
+          size="xl"
+        >
+          <div className="flex items-center justify-center p-4">
+            <img 
+              src={src} 
+              alt={alt} 
+              className="max-h-[70vh] object-contain rounded-md"
+            />
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 /* ============================================================ ticket drawer */
 
 function TicketDrawer({
-  ticket, vendors, onClose, mutate, notify, canManage, actor,
+  ticket, vendors, onClose, mutate, notify, canManage, actor, reloadTickets, activeTenantId
 }: {
   ticket: any;
   vendors: any[];
@@ -311,9 +373,15 @@ function TicketDrawer({
   notify: (m: string) => void;
   canManage: boolean;
   actor: string;
+  reloadTickets: () => void;
+  activeTenantId: string;
 }) {
   const { data: comments } = useApi<any[]>(
     `/service-desk/tickets/${ticket.id}/comments`,
+    []
+  );
+  const { data: documents, reload: reloadDocs } = useApi<any[]>(
+    `/documents?entity_type=SERVICE_DESK&entity_id=${ticket.id}`,
     []
   );
   const [reply, setReply] = useState("");
@@ -369,8 +437,8 @@ function TicketDrawer({
   async function setStatus(s: string) {
     await mutate(`/service-desk/tickets/${ticket.id}`, "PATCH", {
       status: s,
-      actor,
     });
+    reloadTickets();
   }
 
   return (
@@ -524,34 +592,85 @@ function TicketDrawer({
               Drop photos or a quote here, or click to choose
             </span>
             <span className="mt-0.5 text-2xs text-muted-foreground">
-              Held in the browser for this demo
+              Images and PDFs are supported
             </span>
             <input
               type="file"
               multiple
               className="hidden"
-              onChange={(e) => {
-                const list = Array.from(e.target.files ?? []).map((f) => ({
-                  name: f.name,
-                  size: f.size,
-                }));
-                setFiles((prev) => [...prev, ...list]);
+              onChange={async (e) => {
+                const filesList = Array.from(e.target.files ?? []);
+                for (const file of filesList) {
+                  const form = new FormData();
+                  form.append("file", file);
+                  form.append("entity_type", "SERVICE_DESK");
+                  form.append("entity_id", ticket.id);
+                  try {
+                    const token = localStorage.getItem("casa_token");
+                    const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1"}/documents`, {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                        "X-Tenant-Id": activeTenantId,
+                      },
+                      body: form,
+                    });
+                    if (!res.ok) {
+                      const text = await res.text();
+                      throw new Error(`Upload failed: ${text}`);
+                    }
+                  } catch (err: any) {
+                    alert(err.message);
+                  }
+                }
+                reloadDocs();
               }}
             />
           </label>
-          {files.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {files.map((f, i) => (
-                <li
-                  key={i}
-                  className="flex items-center justify-between rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs"
-                >
-                  <span className="truncate">{f.name}</span>
-                  <span className="tabular shrink-0 text-muted-foreground">
-                    {(f.size / 1024).toFixed(0)} KB
-                  </span>
-                </li>
-              ))}
+          {documents.length > 0 && (
+            <ul className="mt-4 space-y-3">
+              {documents.map((doc: any) => {
+                const isImage = doc.content_type?.startsWith("image/");
+                const url = `${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1"}/documents/${doc.id}/download`;
+                
+                return (
+                  <li
+                    key={doc.id}
+                    className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3"
+                  >
+                    <div className="flex items-center justify-between text-sm">
+                      <button 
+                        onClick={async () => {
+                          const token = localStorage.getItem("casa_token");
+                          const res = await fetch(url, {
+                            headers: { Authorization: `Bearer ${token}`, "X-Tenant-Id": activeTenantId }
+                          });
+                          const blob = await res.blob();
+                          const tempUrl = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = tempUrl;
+                          a.download = doc.filename;
+                          a.click();
+                          URL.revokeObjectURL(tempUrl);
+                        }}
+                        className="font-medium text-primary hover:underline truncate"
+                      >
+                        {doc.filename}
+                      </button>
+                    </div>
+                    {isImage && (
+                      <div className="mt-1 overflow-hidden rounded-md border bg-black/5">
+                        <AuthImage 
+                          url={url} 
+                          alt={doc.filename} 
+                          className="max-h-48 object-contain"
+                          activeTenantId={activeTenantId}
+                        />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

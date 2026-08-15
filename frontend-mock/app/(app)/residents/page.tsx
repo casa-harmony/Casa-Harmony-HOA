@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import {
-  Home, KeyRound, Mail, Phone, Plus, ShieldCheck, Smartphone, UserCheck, Users,
+  Building2, Home, KeyRound, Mail, MailCheck, Phone, Plus, ShieldCheck, Smartphone,
+  UserCheck, Users,
 } from "lucide-react";
 import { useAuth } from "../../providers";
 import { useApi, useMutate } from "@/lib/use-api";
@@ -17,8 +18,8 @@ import {
 
 export default function ResidentsPage() {
   const { can } = useAuth();
-  const { data: residents } = useApi<any[]>("/residents", []);
-  const { data: homeowners } = useApi<any[]>("/subledger/homeowners", []);
+  const { data: residents, reload: reloadResidents } = useApi<any[]>("/residents", []);
+  const { data: homeowners, reload: reloadUnits } = useApi<any[]>("/subledger/homeowners", []);
   const { mutate } = useMutate();
 
   const [tab, setTab] = useState<"PEOPLE" | "UNITS">("PEOPLE");
@@ -26,7 +27,9 @@ export default function ResidentsPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [addingUnit, setAddingUnit] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
 
   const resident = residents.find((r) => r.id === selected) ?? null;
 
@@ -274,7 +277,27 @@ export default function ResidentsPage() {
           />
         </>
       ) : (
-        <DataTable rows={homeowners} columns={unitCols} />
+        <>
+          {can("resident.manage") && (
+            <div className="flex justify-end">
+              <Button variant="secondary" onClick={() => setAddingUnit(true)}>
+                <Plus className="h-4 w-4" />
+                Add unit
+              </Button>
+            </div>
+          )}
+          <DataTable
+            rows={homeowners}
+            columns={unitCols}
+            empty={
+              <EmptyState
+                icon={Building2}
+                title="No units yet"
+                description="Add property units so you can link residents and bill assessments."
+              />
+            }
+          />
+        </>
       )}
 
       {resident && (
@@ -295,16 +318,26 @@ export default function ResidentsPage() {
               <>
                 <Button
                   variant="secondary"
-                  onClick={() => {
-                    setFlash(
-                      `A password-reset link has been sent to ${resident.email}.`
-                    );
-                    setTimeout(() => setFlash(null), 4000);
-                    setSelected(null);
+                  disabled={resending || !resident.email}
+                  onClick={async () => {
+                    setResending(true);
+                    try {
+                      await mutate(`/residents/${resident.id}/resend-invite`, "POST");
+                      setFlash(
+                        `Invite re-sent to ${resident.email}. The link expires in 30 minutes.`
+                      );
+                      setTimeout(() => setFlash(null), 6000);
+                      setSelected(null);
+                    } catch (e: any) {
+                      setFlash(e?.message ?? "Failed to resend invite");
+                      setTimeout(() => setFlash(null), 5000);
+                    } finally {
+                      setResending(false);
+                    }
                   }}
                 >
-                  <KeyRound className="h-4 w-4" />
-                  Send reset link
+                  <MailCheck className="h-4 w-4" />
+                  {resending ? "Sending…" : "Resend invite"}
                 </Button>
                 <Button
                   variant={resident.is_active ? "danger" : "primary"}
@@ -393,8 +426,28 @@ export default function ResidentsPage() {
         <InviteResidentModal
           homeowners={homeowners}
           onClose={() => setCreating(false)}
+          onCreateUnit={async (unitBody) => {
+            const created = (await mutate("/subledger/homeowners", "POST", unitBody)) as { id: string };
+            reloadUnits();
+            return created.id;
+          }}
           onCreate={async (body) => {
-            await mutate("/residents", "POST", body);
+            // ResidentCreate forbids unknown fields (extra="forbid") and has
+            // no homeowner_id — the unit link is a separate call. Split them:
+            // create the login first, then link the selected unit.
+            // send_invite tells the backend to email a set-password link
+            // instead of requiring us to set a password directly.
+            const { homeowner_id, ...residentBody } = { ...body, send_invite: true };
+            const created = (await mutate("/residents", "POST", residentBody)) as {
+              id: string;
+            };
+            if (homeowner_id) {
+              await mutate(`/residents/${created.id}/units`, "POST", {
+                homeowner_id,
+                is_primary: true,
+              });
+            }
+            reloadResidents();
             setCreating(false);
             setFlash(
               `${body.full_name} has been invited. They will set their own password on first sign-in.`
@@ -403,16 +456,33 @@ export default function ResidentsPage() {
           }}
         />
       )}
+
+      {addingUnit && (
+        <AddUnitModal
+          onClose={() => setAddingUnit(false)}
+          onSave={async (body) => {
+            await mutate("/subledger/homeowners", "POST", body);
+            reloadUnits();
+            setAddingUnit(false);
+            setFlash(`Unit ${body.property_unit ?? body.account_number} has been created.`);
+            setTimeout(() => setFlash(null), 4000);
+          }}
+        />
+      )}
     </PageShell>
   );
 }
 
 function InviteResidentModal({
-  homeowners, onClose, onCreate,
+  homeowners,
+  onClose,
+  onCreate,
+  onCreateUnit,
 }: {
   homeowners: any[];
   onClose: () => void;
   onCreate: (b: any) => Promise<void>;
+  onCreateUnit: (b: any) => Promise<string>;
 }) {
   const [form, setForm] = useState({
     full_name: "",
@@ -423,8 +493,27 @@ function InviteResidentModal({
     mfa_channel: "EMAIL",
     homeowner_id: homeowners[0]?.id ?? "",
   });
+  // Inline unit creation (shown when no homeowners exist yet)
+  const [newUnit, setNewUnit] = useState({
+    property_unit: "",
+    account_number: "",
+    first_name: "",
+    last_name: "",
+    email: "",
+  });
+  const [createUnit, setCreateUnit] = useState(homeowners.length === 0);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const setU = (k: string, v: string) => setNewUnit((u) => ({ ...u, [k]: v }));
+
+  const canSubmit =
+    form.full_name.trim() &&
+    form.email.trim() &&
+    (!createUnit ||
+      (newUnit.property_unit.trim() &&
+        newUnit.account_number.trim() &&
+        newUnit.first_name.trim() &&
+        newUnit.last_name.trim()));
 
   return (
     <Modal
@@ -438,11 +527,25 @@ function InviteResidentModal({
             Cancel
           </Button>
           <Button
-            disabled={!form.full_name.trim() || !form.email.trim() || busy}
+            disabled={!canSubmit || busy}
             onClick={async () => {
               setBusy(true);
-              await onCreate(form);
-              setBusy(false);
+              try {
+                let hid = form.homeowner_id;
+                if (createUnit && newUnit.property_unit.trim()) {
+                  // Create the AR homeowner record first, then link it
+                  hid = await onCreateUnit({
+                    account_number: newUnit.account_number || `UNIT-${newUnit.property_unit}`,
+                    first_name: newUnit.first_name || form.full_name.split(" ")[0] || "Resident",
+                    last_name: newUnit.last_name || form.full_name.split(" ").slice(1).join(" ") || "Unknown",
+                    email: newUnit.email || form.email || undefined,
+                    property_unit: newUnit.property_unit,
+                  });
+                }
+                await onCreate({ ...form, homeowner_id: hid });
+              } finally {
+                setBusy(false);
+              }
             }}
           >
             {busy ? "Sending…" : "Send invitation"}
@@ -451,11 +554,12 @@ function InviteResidentModal({
       }
     >
       <div className="space-y-4">
+        {/* ── Resident details ── */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="n">Full name</Label>
+            <Label htmlFor="inv-n">Full name</Label>
             <Input
-              id="n"
+              id="inv-n"
               value={form.full_name}
               onChange={(e) => {
                 set("full_name", e.target.value);
@@ -468,9 +572,9 @@ function InviteResidentModal({
             />
           </div>
           <div>
-            <Label htmlFor="u">Username</Label>
+            <Label htmlFor="inv-u">Username</Label>
             <Input
-              id="u"
+              id="inv-u"
               value={form.username}
               onChange={(e) => set("username", e.target.value)}
             />
@@ -478,28 +582,28 @@ function InviteResidentModal({
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="e">Email</Label>
+            <Label htmlFor="inv-e">Email</Label>
             <Input
-              id="e"
+              id="inv-e"
               type="email"
               value={form.email}
               onChange={(e) => set("email", e.target.value)}
             />
           </div>
           <div>
-            <Label htmlFor="p">Phone</Label>
+            <Label htmlFor="inv-p">Phone</Label>
             <Input
-              id="p"
+              id="inv-p"
               value={form.phone}
               onChange={(e) => set("phone", e.target.value)}
             />
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="t">Type</Label>
+            <Label htmlFor="inv-t">Type</Label>
             <Select
-              id="t"
+              id="inv-t"
               value={form.resident_type}
               onChange={(e) => set("resident_type", e.target.value)}
             >
@@ -508,9 +612,9 @@ function InviteResidentModal({
             </Select>
           </div>
           <div>
-            <Label htmlFor="m">Sign-in code by</Label>
+            <Label htmlFor="inv-m">Sign-in code by</Label>
             <Select
-              id="m"
+              id="inv-m"
               value={form.mfa_channel}
               onChange={(e) => set("mfa_channel", e.target.value)}
             >
@@ -518,20 +622,206 @@ function InviteResidentModal({
               <option value="SMS">Text message</option>
             </Select>
           </div>
-          <div>
-            <Label htmlFor="h">Unit</Label>
-            <Select
-              id="h"
-              value={form.homeowner_id}
-              onChange={(e) => set("homeowner_id", e.target.value)}
-            >
-              {homeowners.map((h) => (
-                <option key={h.id} value={h.id}>
-                  Unit {h.property_unit}
-                </option>
-              ))}
-            </Select>
+        </div>
+
+        {/* ── Unit linking ── */}
+        <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Link to a property unit</p>
+            {homeowners.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-primary underline-offset-2 hover:underline"
+                onClick={() => setCreateUnit((v) => !v)}
+              >
+                {createUnit ? "Pick existing unit" : "+ Create new unit"}
+              </button>
+            )}
           </div>
+
+          {!createUnit ? (
+            /* ── Existing units dropdown ── */
+            homeowners.length > 0 ? (
+              <Select
+                id="inv-h"
+                value={form.homeowner_id}
+                onChange={(e) => set("homeowner_id", e.target.value)}
+              >
+                <option value="">— No unit, invite only —</option>
+                {homeowners.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    Unit {h.property_unit} · {h.first_name} {h.last_name}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No units have been created yet.{" "}
+                <button
+                  type="button"
+                  className="text-primary underline-offset-2 hover:underline"
+                  onClick={() => setCreateUnit(true)}
+                >
+                  Create one below.
+                </button>
+              </p>
+            )
+          ) : (
+            /* ── Inline new-unit form ── */
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                A new AR account will be created and linked to this resident.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="nu-unit">Unit number <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="nu-unit"
+                    placeholder="e.g. 101"
+                    value={newUnit.property_unit}
+                    onChange={(e) => setU("property_unit", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="nu-acc">Account # <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="nu-acc"
+                    placeholder="e.g. HO-101"
+                    value={newUnit.account_number}
+                    onChange={(e) => setU("account_number", e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="nu-fn">First name <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="nu-fn"
+                    placeholder="Account holder first name"
+                    value={newUnit.first_name}
+                    onChange={(e) => setU("first_name", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="nu-ln">Last name <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="nu-ln"
+                    placeholder="Account holder last name"
+                    value={newUnit.last_name}
+                    onChange={(e) => setU("last_name", e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AddUnitModal({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (b: any) => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    property_unit: "",
+    account_number: "",
+    first_name: "",
+    last_name: "",
+    email: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const canSave =
+    form.property_unit.trim() &&
+    form.account_number.trim() &&
+    form.first_name.trim() &&
+    form.last_name.trim();
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Add a property unit"
+      description="Creates the AR account that assessments are billed against. You can link residents to it afterwards."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!canSave || busy}
+            onClick={async () => {
+              setBusy(true);
+              await onSave({
+                account_number: form.account_number,
+                first_name: form.first_name,
+                last_name: form.last_name,
+                email: form.email || undefined,
+                property_unit: form.property_unit,
+              });
+              setBusy(false);
+            }}
+          >
+            {busy ? "Saving…" : "Create unit"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="au-unit">Unit number <span className="text-destructive">*</span></Label>
+            <Input
+              id="au-unit"
+              placeholder="e.g. 101"
+              value={form.property_unit}
+              onChange={(e) => set("property_unit", e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div>
+            <Label htmlFor="au-acc">Account number <span className="text-destructive">*</span></Label>
+            <Input
+              id="au-acc"
+              placeholder="e.g. HO-101"
+              value={form.account_number}
+              onChange={(e) => set("account_number", e.target.value)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">Account holder (the person responsible for this unit's dues):</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="au-fn">First name <span className="text-destructive">*</span></Label>
+            <Input
+              id="au-fn"
+              value={form.first_name}
+              onChange={(e) => set("first_name", e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="au-ln">Last name <span className="text-destructive">*</span></Label>
+            <Input
+              id="au-ln"
+              value={form.last_name}
+              onChange={(e) => set("last_name", e.target.value)}
+            />
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="au-email">Email (optional)</Label>
+          <Input
+            id="au-email"
+            type="email"
+            value={form.email}
+            onChange={(e) => set("email", e.target.value)}
+          />
         </div>
       </div>
     </Modal>

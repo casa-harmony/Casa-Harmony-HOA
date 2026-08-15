@@ -38,6 +38,11 @@ def get_current_user(
     ctx = get_context()
     if ctx.user_id is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid authentication token")
+    # Only plain access tokens authenticate staff endpoints. Refresh, password-
+    # reset, and resident tokens must never be accepted as staff credentials —
+    # a stolen 7-day refresh token would otherwise be a full staff session.
+    if ctx.scope in ("refresh", "pwreset", "resident"):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token scope")
     user = db.get(User, ctx.user_id)
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")

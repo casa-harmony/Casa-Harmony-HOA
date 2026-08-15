@@ -12,6 +12,11 @@ import {
 } from "@/components/app/kit";
 import { cn } from "@/lib/utils";
 
+/** Users with no memberships have no role yet (server sends role_code: null). */
+function displayRole(roleCode: string | null | undefined): string {
+  return roleCode ? roleCode.replace(/_/g, " ") : "No role";
+}
+
 export default function UsersPage() {
   const { can, refresh, user: userSession } = useAuth();
   const { data: users } = useApi<any[]>("/users", []);
@@ -38,11 +43,9 @@ export default function UsersPage() {
       await mutate("/users", "POST", {
         full_name: form.full_name,
         email: form.email,
-        title: form.title, // mock transport reads `title`; the live API takes `job_title`
         job_title: form.title,
         role_code: form.role_code,
         is_superadmin: form.is_superadmin,
-        tenant_ids: form.tenant_ids,
         tenant_id: form.tenant_ids[0] || null,
         // Invitation, not a typed password: the server emails a one-time
         // set-password link (single-use reset token).
@@ -74,7 +77,7 @@ export default function UsersPage() {
         !q ||
         u.full_name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
-        u.role_code.toLowerCase().includes(q)
+        (u.role_code ?? "").toLowerCase().includes(q)
     );
   }, [users, search]);
 
@@ -106,7 +109,7 @@ export default function UsersPage() {
       header: "Role",
       render: (u) => (
         <Badge tone={ROLES[u.role_code]?.implemented ? "primary" : "warning"}>
-          {u.role_code.replace(/_/g, " ")}
+          {displayRole(u.role_code)}
         </Badge>
       ),
     },
@@ -301,7 +304,7 @@ export default function UsersPage() {
           onClose={() => setSelected(null)}
           title={user.full_name}
           subtitle={user.title}
-          badge={<Badge tone="primary">{user.role_code.replace(/_/g, " ")}</Badge>}
+          badge={<Badge tone="primary">{displayRole(user.role_code)}</Badge>}
           width="lg"
         >
           <div className="space-y-6">
@@ -329,7 +332,7 @@ export default function UsersPage() {
                           {t?.kind}
                         </p>
                       </div>
-                      <Badge tone="primary">{user.role_code.replace(/_/g, " ")}</Badge>
+                      <Badge tone="primary">{displayRole(user.role_code)}</Badge>
                     </div>
                   );
                 })}

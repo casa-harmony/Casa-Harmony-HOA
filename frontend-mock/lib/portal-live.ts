@@ -21,6 +21,16 @@ export function getPortalToken(): string | null {
   return window.localStorage.getItem(PORTAL_TOKEN_KEY);
 }
 
+export async function portalCommunities() {
+  const res = await fetch(`${API_BASE}/portal/communities`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load communities: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export function setPortalToken(token: string): void {
   window.localStorage.setItem(PORTAL_TOKEN_KEY, token);
 }
@@ -96,5 +106,46 @@ export async function portalVerify(
   return portalPost<PortalTokenResult>("/portal/login/verify", {
     challenge_id: challengeId,
     code: code.trim(),
+  });
+}
+
+/** Set a password from the one-time link emailed by the staff invite. */
+export async function portalAcceptInvite(
+  token: string,
+  newPassword: string
+): Promise<{ status: string }> {
+  return portalPost<{ status: string }>("/portal/accept-invite", {
+    token,
+    new_password: newPassword,
+  });
+}
+
+/** Request a one-time reset code (always 200 — no account enumeration). */
+export async function portalForgotPassword(
+  slug: string,
+  username: string
+): Promise<{
+  status: string;
+  challenge_id?: string;
+  channel?: string;
+  destination_masked?: string;
+  dev_otp?: string;
+}> {
+  return portalPost("/portal/forgot-password", {
+    hoa_slug: slug.trim().toLowerCase(),
+    username: username.trim(),
+  });
+}
+
+/** Complete the reset with the one-time code and a new password. */
+export async function portalResetPassword(
+  challengeId: string,
+  code: string,
+  newPassword: string
+): Promise<{ status: string }> {
+  return portalPost<{ status: string }>("/portal/reset-password", {
+    challenge_id: challengeId,
+    code: code.trim(),
+    new_password: newPassword,
   });
 }

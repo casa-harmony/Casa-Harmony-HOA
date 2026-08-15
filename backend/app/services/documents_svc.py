@@ -29,7 +29,31 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.documents import DocumentAttachment
 
-ALLOWED_ENTITIES = {"AR_INVOICE", "AP_INVOICE", "PO", "ASSET", "RESERVE_STUDY", "HOMEOWNER", "OTHER"}
+ALLOWED_ENTITIES = {"AR_INVOICE", "AP_INVOICE", "PO", "ASSET", "RESERVE_STUDY", "HOMEOWNER", "SERVICE_DESK", "OTHER"}
+
+#: Hard cap on upload size — prevents unbounded memory use from a large body.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
+
+#: Content types an HOA document store legitimately holds. Uploads are served
+#: back with the stored content type, so HTML/JS/SVG (stored-XSS vectors) are
+#: rejected outright rather than served to a browser on download.
+ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "application/zip",
+    "application/octet-stream",  # documents uploaded with an untyped client
+}
 
 logger = logging.getLogger("casa-harmony.documents")
 
@@ -148,6 +172,13 @@ def save_document(db: Session, *, tenant_id, entity_type, entity_id, filename, c
         raise DocumentError(f"Unsupported entity type: {entity_type}")
     if not data:
         raise DocumentError("Empty file")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise DocumentError(
+            f"File too large: {len(data)} bytes exceeds the {MAX_UPLOAD_BYTES} limit"
+        )
+    ctype = (content_type or "application/octet-stream").lower().split(";")[0].strip()
+    if ctype not in ALLOWED_CONTENT_TYPES:
+        raise DocumentError(f"Unsupported content type: {content_type}")
 
     storage_key = uuid.uuid4().hex
     if _cloudinary_ready():

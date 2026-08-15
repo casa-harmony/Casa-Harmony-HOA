@@ -193,8 +193,14 @@ function MockPortalLogin() {
           </Button>
 
           <a
-            href="/login"
+            href="/portal/forgot-password"
             className="mt-3 block text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Forgot your password?
+          </a>
+          <a
+            href="/login"
+            className="mt-1 block text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
           >
             Staff sign-in is a different door &rarr;
           </a>

@@ -12,11 +12,11 @@
  * lib/portal-live.ts; this component only drives the forms.
  */
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowRight, Loader2, Lock } from "lucide-react";
 import { ApiError } from "@/lib/api";
-import { portalLogin, portalVerify, setPortalToken } from "@/lib/portal-live";
+import { portalLogin, portalVerify, setPortalToken, portalCommunities } from "@/lib/portal-live";
 import { Button, Card } from "@/components/ui";
 import { ThemeToggle } from "@/components/theme";
 
@@ -31,6 +31,16 @@ export default function LivePortalLogin() {
   const [slug, setSlug] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [communities, setCommunities] = useState<{ id: string; name: string; slug: string }[]>([]);
+
+  useEffect(() => {
+    portalCommunities()
+      .then((data) => {
+        setCommunities(data);
+        if (data.length > 0) setSlug(data[0].slug);
+      })
+      .catch(console.error);
+  }, []);
 
   // MFA step
   const [challengeId, setChallengeId] = useState<string | null>(null);
@@ -103,16 +113,20 @@ export default function LivePortalLogin() {
                 <label htmlFor="pl-slug" className="text-sm font-medium">
                   Community
                 </label>
-                <input
+                <select
                   id="pl-slug"
-                  type="text"
-                  autoComplete="organization"
                   required
                   className={fieldClass}
                   value={slug}
                   onChange={(e) => setSlug(e.target.value)}
-                  placeholder="your-community-slug"
-                />
+                >
+                  <option value="" disabled>Select your community</option>
+                  {communities.map((c) => (
+                    <option key={c.id} value={c.slug}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -169,6 +183,13 @@ export default function LivePortalLogin() {
                   </>
                 )}
               </Button>
+
+              <a
+                href="/portal/forgot-password"
+                className="text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Forgot your password?
+              </a>
             </form>
           ) : (
             <form onSubmit={onVerify} className="flex flex-col gap-4">

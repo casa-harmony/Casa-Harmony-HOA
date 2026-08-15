@@ -12,15 +12,15 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Wallet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, FileSpreadsheet } from "lucide-react";
 
 const MOCK_CASH_FLOW = [
-  { month: "Jan", in: 12000, out: 9500 },
-  { month: "Feb", in: 15000, out: 11000 },
-  { month: "Mar", in: 11000, out: 12500 },
-  { month: "Apr", in: 18000, out: 10000 },
-  { month: "May", in: 14000, out: 13500 },
-  { month: "Jun", in: 21000, out: 15000 },
+  { month: "Jan", in: 0, out: 0 },
+  { month: "Feb", in: 0, out: 0 },
+  { month: "Mar", in: 0, out: 0 },
+  { month: "Apr", in: 0, out: 0 },
+  { month: "May", in: 0, out: 0 },
+  { month: "Jun", in: 0, out: 0 },
 ];
 export default function CashPage() {
-  const { token, activeTenantId } = useAuth();
+  const { token, activeTenantId, refresh } = useAuth();
   const [accounts, setAccounts] = useState<CeBankAccount[]>([]);
   const [position, setPosition] = useState<CashPosition[]>([]);
   const [statements, setStatements] = useState<CeStatement[]>([]);
@@ -68,6 +68,7 @@ export default function CashPage() {
                 gl_cash_combination_id: acct.gl_cash_combination_id || undefined } });
       setModal(""); setAcct({ account_code: "", name: "", fund_value: "OPER", bank_name: "", account_number: "", routing_number: "", gl_cash_combination_id: "" });
       await load();
+      refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Save failed"); }
     finally { setBusy(null); }
   }

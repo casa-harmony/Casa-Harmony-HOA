@@ -17,6 +17,8 @@ from app.models.ar_billing import BillingPlan
 from app.services.golive_exec import validate, get_status, RETAINED_EARNINGS_NATURAL
 
 def get_tenant_readiness(db: Session, tenant_id: uuid.UUID) -> dict[str, Any]:
+    from sqlalchemy import text
+    db.execute(text("SELECT set_config('app.current_tenant', :tid, true)"), {"tid": str(tenant_id)})
     stages = []
 
     # 1. IDENTITY

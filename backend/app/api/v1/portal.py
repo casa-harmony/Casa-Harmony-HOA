@@ -16,6 +16,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -65,6 +66,19 @@ from app.services.distributions import DistributionError
 
 router = APIRouter(prefix="/portal", tags=["portal"])
 _OPEN = ("DRAFT", "ACCOUNTED", "POSTED")
+
+
+class PortalCommunity(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+
+@router.get("/communities", response_model=list[PortalCommunity])
+def list_portal_communities(db: Session = Depends(get_db)):
+    """Public endpoint to list communities for the resident login dropdown."""
+    rows = db.execute(select(Tenant.id, Tenant.name, Tenant.slug).order_by(Tenant.name)).all()
+    return [{"id": r.id, "name": r.name, "slug": r.slug} for r in rows]
+
 
 
 def _issue_token(resident: Resident) -> str:

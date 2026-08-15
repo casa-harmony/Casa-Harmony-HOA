@@ -14,13 +14,72 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.kff import GlCodeCombination
+from app.models.gl import GlBalance
 from app.models.subledger import ArInvoice, GlJournal, GlJournalLine
+from app.services.periods import period_parts
 
 CENT = Decimal("0.01")
 
 
 class PostingError(ValueError):
     pass
+
+
+def _prior_end_balance(db: Session, tenant_id: uuid.UUID, ccid: uuid.UUID,
+                       pyear: int, pnum: int) -> Decimal:
+    """Ending balance of the most recent period before (pyear, pnum) for a CCID."""
+    prior = db.execute(
+        select(GlBalance).where(
+            GlBalance.tenant_id == tenant_id,
+            GlBalance.code_combination_id == ccid,
+            (GlBalance.period_year < pyear)
+            | ((GlBalance.period_year == pyear) & (GlBalance.period_num < pnum)),
+        ).order_by(GlBalance.period_year.desc(), GlBalance.period_num.desc())
+    ).scalars().first()
+    return prior.end_balance if prior else Decimal("0")
+
+
+def _materialize_balances(db: Session, *, tenant_id: uuid.UUID,
+                          accounting_date: date, lines: list[dict]) -> None:
+    """Upsert GL_BALANCES rows for a posted journal.
+
+    The batch path (submit → approve → post) writes GL_BALANCES from its JE
+    lines; journals posted directly (AR billing plan runs, late fees, manual
+    journals) must do the same or they never appear in the trial balance / GL
+    reports, which read GL_BALANCES exclusively. Aggregating per code
+    combination keeps the post O(distinct combinations) and matches the batch
+    path's semantics exactly.
+    """
+    pname, pyear, pnum = period_parts(accounting_date)
+    agg: dict[uuid.UUID, dict] = {}
+    for ln in lines:
+        a = agg.setdefault(ln["code_combination_id"], {
+            "dr": Decimal("0"), "cr": Decimal("0"),
+        })
+        a["dr"] += ln["debit"]
+        a["cr"] += ln["credit"]
+
+    for ccid, a in agg.items():
+        cc = db.get(GlCodeCombination, ccid)
+        bal = db.execute(
+            select(GlBalance).where(
+                GlBalance.tenant_id == tenant_id,
+                GlBalance.code_combination_id == ccid,
+                GlBalance.period_name == pname,
+            )
+        ).scalar_one_or_none()
+        if bal is None:
+            begin = _prior_end_balance(db, tenant_id, ccid, pyear, pnum)
+            bal = GlBalance(
+                tenant_id=tenant_id, code_combination_id=ccid,
+                period_name=pname, period_year=pyear, period_num=pnum,
+                fund_value=cc.fund_value if cc else None, begin_balance=begin,
+                period_net_dr=Decimal("0"), period_net_cr=Decimal("0"),
+            )
+            db.add(bal)
+            db.flush()
+        bal.period_net_dr += a["dr"]
+        bal.period_net_cr += a["cr"]
 
 
 def next_journal_number(db: Session, tenant_id: uuid.UUID, prefix: str = "JE") -> str:
@@ -104,6 +163,12 @@ def post_journal(
     db.flush()
     for v in validated:
         db.add(GlJournalLine(tenant_id=tenant_id, journal_id=journal.id, **v))
+    db.flush()
+    # Materialize GL_BALANCES so this journal is visible to every report.
+    # Same aggregation the batch path performs; journals posted directly must
+    # appear in the trial balance exactly like batch-posted entries.
+    _materialize_balances(db, tenant_id=tenant_id, accounting_date=accounting_date,
+                          lines=validated)
     db.flush()
     return journal
 

@@ -154,10 +154,10 @@ function route<T>(c: Ctx): T {
         id: `persona-${PERSONAS.length + 1}`,
         full_name: body.full_name || "New User",
         email: body.email || "user@casaharmony.ai",
-        title: body.title || "Staff Member",
+        title: body.job_title || body.title || "Staff Member",
         role_code: body.role_code || "HOA_ADMIN",
         is_superadmin: Boolean(body.is_superadmin),
-        tenant_ids: body.tenant_ids && body.tenant_ids.length ? body.tenant_ids : [TENANTS[0]?.id || "tenant-1"],
+        tenant_ids: (body.tenant_ids && body.tenant_ids.length) ? body.tenant_ids : (body.tenant_id ? [body.tenant_id] : [TENANTS[0]?.id || "tenant-1"]),
       };
       PERSONAS.push(newUser as any);
       return ok({
@@ -393,6 +393,13 @@ function route<T>(c: Ctx): T {
   if (seg[0] === "residents" && seg[1]) {
     const r = d.residents.find((x: any) => x.id === seg[1]);
     if (!r) throw new ApiError("Resident not found", 404);
+    if (seg[2] === "units" && method === "POST") {
+      // Mirror the live transport: unit links are a separate call from
+      // POST /residents (ResidentCreate forbids homeowner_id).
+      r.homeowner_id = body.homeowner_id ?? r.homeowner_id;
+      r.unit_count = r.homeowner_id ? 1 : 0;
+      return ok({ id: `${r.id}-unit`, homeowner_id: r.homeowner_id, unit_number: body.unit_number ?? null, is_primary: body.is_primary ?? false });
+    }
     if (method === "PATCH") {
       Object.assign(r, body);
       return ok(r);

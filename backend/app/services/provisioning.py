@@ -73,6 +73,8 @@ def generate_standard_gl_combinations(
         {1: "0100", 2: "OPER", 3: "000", 4: "1100", 5: "0000", 6: "NONE"},  # Assessments receivable
         {1: "0100", 2: "OPER", 3: "000", 4: "2000", 5: "0000", 6: "NONE"},  # AP - operating
         {1: "0100", 2: "RESV", 3: "000", 4: "2000", 5: "0000", 6: "NONE"},  # AP - reserve
+        {1: "0100", 2: "OPER", 3: "000", 4: "3000", 5: "0000", 6: "NONE"},  # Retained earnings - operating
+        {1: "0100", 2: "RESV", 3: "000", 4: "3000", 5: "0000", 6: "NONE"},  # Retained earnings - reserve
         {1: "0100", 2: "OPER", 3: "000", 4: "4000", 5: "0000", 6: "NONE"},  # Assessment income
         {1: "0100", 2: "OPER", 3: "100", 4: "5000", 5: "0000", 6: "NONE"},  # Landscaping expense
         {1: "0100", 2: "OPER", 3: "200", 4: "5100", 5: "0000", 6: "NONE"},  # Utilities expense
@@ -131,6 +133,11 @@ def provision_tenant(
     )
     db.add(tenant)
     db.flush()
+
+    # Set transaction-local RLS context for the newly created tenant
+    from sqlalchemy import text
+    db.execute(text("SELECT set_config('app.current_tenant', :tid, true)"), {"tid": str(tenant.id)})
+    db.execute(text("SELECT set_config('app.is_superadmin', 'on', true)"))
 
     # 2. COA structure
     structure = None
@@ -203,8 +210,11 @@ def provision_tenant(
             email=admin_email.lower(),
             full_name=admin_name or admin_email.split("@")[0],
             hashed_password=hash_password(admin_password),
+            # The superadmin picked this password, so the admin must set their
+            # own on first login — same policy as POST /tenants/{id}/admins and
+            # the runbook smoke test ("sign in … change the password").
             is_superadmin=False,
-            must_change_password=False,
+            must_change_password=True,
         )
         db.add(admin)
         db.flush()

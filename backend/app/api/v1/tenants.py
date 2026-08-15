@@ -119,6 +119,17 @@ def update_tenant(
     if not principal.is_superadmin and principal.tenant_id != tenant_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this HOA")
 
+    # Suspending/activating a tenant locks out every user in the HOA — a
+    # platform action. SYSADMIN holds tenant.update (editing configuration)
+    # but not tenant.suspend, so a HOA admin must never be able to freeze
+    # their own community (or anyone else's). Only the platform SUPERADMIN
+    # may change tenant status.
+    if "status" in payload.model_fields_set and not principal.is_superadmin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the platform SUPERADMIN may suspend or activate a tenant",
+        )
+
     before = {"name": tenant.name, "status": tenant.status}
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(tenant, k, v)

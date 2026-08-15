@@ -13,6 +13,9 @@ export function useApi<T>(path: string | null, initial: T) {
   const [data, setData] = useState<T>(initial);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     if (!path) {
@@ -33,9 +36,9 @@ export function useApi<T>(path: string | null, initial: T) {
     return () => {
       alive = false;
     };
-  }, [path, activeTenantId, revision]);
+  }, [path, activeTenantId, revision, tick]);
 
-  return { data, loading, error };
+  return { data, loading, error, reload };
 }
 
 /** Write helper — POST/PATCH/DELETE with the active community attached. */

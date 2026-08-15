@@ -130,6 +130,5 @@ class ArReceipt(Base, TenantMixin, TimestampMixin):
     receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
     payment_method: Mapped[str] = mapped_column(String(20), default="CHECK", nullable=False)  # CHECK|ACH|CARD
     status: Mapped[str] = mapped_column(String(15), default="APPLIED", nullable=False)  # APPLIED|POSTED|REVERSED
-    gl_journal_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("gl_journals.id", ondelete="SET NULL")
-    )
+    # Note: receipts post through the GL *batch* path (GlJeBatch → GlBalance),
+    # never a GlJournal, so there is no gl_journal_id column here.

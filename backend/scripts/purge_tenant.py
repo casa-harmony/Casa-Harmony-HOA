@@ -22,45 +22,22 @@ from app.models.identity import Membership, Tenant, User
 
 PROTECTED_SLUGS = {"casa-harmony"}
 
-# Every table carrying a tenant_id, child-first so foreign keys are satisfied.
-# Derived from the models at write time; a stray table just means a FK error
-# that names it, which is easy to add here.
-TENANT_TABLES_CHILD_FIRST = [
-    # AR / collections / statements
-    "statement_deliveries", "statement_runs", "dunning_logs", "dunning_rules",
-    "payment_plan_installments", "payment_plans", "liens", "collection_cases",
-    "ar_receipts", "ar_invoices", "ar_late_fee_rules", "ar_billing_plan_lines",
-    "ar_billing_plans", "ar_homeowners",
-    # resident portal
-    "resident_units", "resident_otp_challenges", "residents",
-    # AP / PO / receiving / vendors
-    "ap_invoice_holds", "ap_invoice_distributions", "ap_payment_links",
-    "ap_payment_schedules", "ap_payments", "ap_invoices",
-    "rcv_transactions", "rcv_lines", "rcv_headers",
-    "po_encumbrances", "po_lines", "purchase_orders",
-    "supplier_bank_accounts", "supplier_contacts", "supplier_sites", "vendors",
-    "distribution_sets", "payment_terms", "vendor_types",
-    # cash / gateway / payments
-    "gateway_transactions", "gateway_configs", "payment_tokens",
-    "bank_statement_lines", "bank_statements", "bank_accounts", "banks",
-    # GL / budget / periods / encumbrance
-    "gl_journal_lines", "gl_journals", "gl_batches", "gl_posting_runs",
-    "gl_balances", "gl_budget_lines", "gl_budgets",
-    "budget_control", "budget_lines", "budget_versions",
-    "encumbrance_settings", "accounting_periods",
-    # fixed assets
-    "reserve_study_components", "reserve_studies", "fixed_assets",
-    # COA / KFF
-    "code_combinations", "cross_validation_rules", "value_set_values",
-    "value_sets", "coa_segments", "coa_structures",
-    # service desk / approvals / notifications / compliance / migration
-    "service_tickets", "approval_requests", "approval_rules",
-    "approval_hierarchies", "notifications", "compliance_items",
-    "migration_records", "migration_batches", "golive_status", "backup_runs",
-    "scheduler_configs", "job_runs", "document_attachments",
-    # identity (memberships before roles; tenant roles are tenant-scoped)
-    "memberships", "audit_logs",
-]
+def tenant_tables(db) -> list[str]:
+    """Every public table that carries a tenant_id, discovered from the schema.
+
+    Hardcoding table names here drifted badly (e.g. ``banks`` vs the real
+    ``ap_banks``), so those DELETEs were silently skipped and the purge only
+    worked because deleting the tenant row cascades via FKs. Deriving the list
+    from ``information_schema`` makes the script correct by construction and
+    future-proof: any table with a tenant_id column is purged, and the count
+    reported is real.
+    """
+    rows = db.execute(text(
+        "SELECT c.table_name FROM information_schema.columns c "
+        "WHERE c.table_schema = 'public' AND c.column_name = 'tenant_id' "
+        "ORDER BY c.table_name"
+    )).all()
+    return [r[0] for r in rows]
 
 
 from app.core.config import settings
@@ -105,14 +82,7 @@ def main() -> int:
                 print("Aborted.")
                 return 1
 
-        # Resolve which candidate tables actually exist and carry a tenant_id,
-        # once — probing per-tenant with try/except + rollback is slow over a
-        # remote database and pollutes the transaction.
-        existing = {r[0] for r in db.execute(text(
-            "SELECT c.table_name FROM information_schema.columns c "
-            "WHERE c.table_schema = 'public' AND c.column_name = 'tenant_id'"
-        )).all()}
-        tables = [t for t in TENANT_TABLES_CHILD_FIRST if t in existing]
+        tables = tenant_tables(db)
 
         # Capture identifiers as plain strings; the ORM row is deleted below and
         # must not be touched afterwards.

@@ -179,6 +179,21 @@ const usd0 = (n: number) =>
 const compact = (n: number) =>
   n >= 1000 ? `$${(n / 1000).toFixed(0)}k` : `$${n}`;
 
+/**
+ * Coerce an API money value (Decimal string like "0.00", number, or null)
+ * into a finite number recharts can plot.
+ *
+ * Raw "0.00" strings defeat recharts' `isNumber(v) || parseFloat(v)` domain
+ * scan (parseFloat("0.00") is 0, which is falsy), so an all-zero series
+ * yields an empty [Infinity, -Infinity] domain and recharts-scale crashes
+ * with "[DecimalError] Invalid argument: -Infinity". Every chart normalizes
+ * at its boundary so a fresh, empty community renders zeros instead.
+ */
+const num = (v: any): number => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 /* ------------------------------------------------------- cash trend (1 series) */
 
 export function CashTrendChart({
@@ -186,10 +201,11 @@ export function CashTrendChart({
 }: {
   data: { period: string; ending: number }[];
 }) {
-  const last = data[data.length - 1];
+  const points = data.map((d) => ({ period: d.period, ending: num(d.ending) }));
+  const last = points[points.length - 1];
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <AreaChart data={data} margin={{ top: 8, right: 44, bottom: 0, left: 4 }}>
+      <AreaChart data={points} margin={{ top: 8, right: 44, bottom: 0, left: 4 }}>
         <defs>
           <linearGradient id="cashFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.22} />
@@ -232,7 +248,7 @@ export function CashTrendChart({
           <LabelList
             dataKey="ending"
             content={(props: any) => {
-              if (props.index !== data.length - 1) return null;
+              if (!last || props.index !== points.length - 1) return null;
               return (
                 <text
                   x={Number(props.x) + 7}
@@ -259,10 +275,15 @@ export function BudgetActualChart({
 }: {
   data: { name: string; budget: number; actual: number }[];
 }) {
+  const points = data.map((d) => ({
+    name: d.name,
+    budget: num(d.budget),
+    actual: num(d.actual),
+  }));
   return (
     <ResponsiveContainer width="100%" height={Math.max(200, data.length * 42)}>
       <BarChart
-        data={data}
+        data={points}
         layout="vertical"
         margin={{ top: 4, right: 12, bottom: 0, left: 4 }}
         barGap={2}
@@ -315,9 +336,10 @@ export function AgeingChart({
 }: {
   data: { bucket: string; amount: number }[];
 }) {
+  const points = data.map((d) => ({ bucket: d.bucket, amount: num(d.amount) }));
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+      <BarChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
         <Grid />
         <XAxis dataKey="bucket" {...AXIS} />
         <YAxis {...AXIS} width={52} tickFormatter={compact} />
@@ -342,10 +364,11 @@ export function TicketMixChart({
 }: {
   data: { label: string; count: number }[];
 }) {
+  const points = data.map((d) => ({ label: d.label, count: num(d.count) }));
   return (
     <ResponsiveContainer width="100%" height={190}>
       <BarChart
-        data={data}
+        data={points}
         layout="vertical"
         margin={{ top: 4, right: 24, bottom: 0, left: 4 }}
       >
@@ -382,9 +405,14 @@ export function InflowOutflowChart({
 }: {
   data: { period: string; inflow: number; outflow: number }[];
 }) {
+  const points = data.map((d) => ({
+    period: d.period,
+    inflow: num(d.inflow),
+    outflow: num(d.outflow),
+  }));
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 4 }} barGap={2}>
+      <BarChart data={points} margin={{ top: 4, right: 8, bottom: 0, left: 4 }} barGap={2}>
         <Grid />
         <XAxis dataKey="period" {...AXIS} />
         <YAxis {...AXIS} width={52} tickFormatter={compact} />
@@ -414,10 +442,11 @@ export function VendorSpendChart({
 }: {
   data: { name: string; spend: number }[];
 }) {
+  const points = data.map((d) => ({ name: d.name, spend: num(d.spend) }));
   return (
     <ResponsiveContainer width="100%" height={Math.max(180, data.length * 34)}>
       <BarChart
-        data={data}
+        data={points}
         layout="vertical"
         margin={{ top: 4, right: 16, bottom: 0, left: 4 }}
       >

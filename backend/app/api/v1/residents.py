@@ -169,3 +169,36 @@ def link_unit(
     audit.record(db, action="LINK_UNIT", entity_type="Resident", entity_id=resident_id,
                  after={"unit": unit_number})
     return link
+
+
+@router.post("/{resident_id}/resend-invite", status_code=status.HTTP_204_NO_CONTENT)
+def resend_invite(
+    resident_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_permission("resident.manage")),
+):
+    """Re-send the password-set invitation email to an existing resident.
+
+    Generates a fresh 30-minute token bound to the resident's current password
+    version, so any previously issued link is immediately invalidated.
+    """
+    r = db.execute(
+        select(Resident).where(
+            Resident.id == resident_id, Resident.tenant_id == principal.tenant_id
+        )
+    ).scalar_one_or_none()
+    if not r:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Resident not found")
+    if not r.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Resident account is disabled")
+    if not r.email:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Resident has no email address — cannot send invite",
+        )
+    tenant = db.get(Tenant, principal.tenant_id)
+    token = create_password_reset_token(r.id, r.password_hash)
+    notifications.send_resident_password_invite(r.email, tenant.slug, token)
+    audit.record(db, action="RESEND_INVITE", entity_type="Resident", entity_id=r.id,
+                 after={"email": r.email})
+
