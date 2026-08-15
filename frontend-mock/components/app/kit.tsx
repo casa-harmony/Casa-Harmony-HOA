@@ -498,6 +498,8 @@ export function FilterChips({
   );
 }
 
+import { createPortal } from "react-dom";
+
 /* ============================================================= DetailSheet */
 
 /** Right-hand slide-over used for record detail across the app. */
@@ -520,6 +522,12 @@ export function DetailSheet({
   footer?: React.ReactNode;
   width?: "md" | "lg" | "xl";
 }) {
+  const [mounted, setMounted] = React.useState(false);
+  
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -531,12 +539,12 @@ export function DetailSheet({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
   const w = { md: "max-w-md", lg: "max-w-xl", xl: "max-w-3xl" }[width];
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-foreground/30 backdrop-blur-sm">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex justify-end bg-foreground/30 backdrop-blur-sm">
       <div
         className="flex-1"
         onClick={onClose}
@@ -547,7 +555,7 @@ export function DetailSheet({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "flex h-full w-full flex-col border-l bg-card shadow-2xl",
+          "flex h-full w-full flex-col border-l bg-card shadow-2xl animate-fade-in",
           w
         )}
       >
@@ -578,7 +586,8 @@ export function DetailSheet({
           </div>
         )}
       </aside>
-    </div>
+    </div>,
+    document.body
   );
 }
 
