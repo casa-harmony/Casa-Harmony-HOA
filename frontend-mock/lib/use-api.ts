@@ -41,7 +41,12 @@ export function useApi<T>(path: string | null, initial: T) {
   return { data, loading, error, reload };
 }
 
-/** Write helper — POST/PATCH/DELETE with the active community attached. */
+/**
+ * Write helper — POST/PATCH/DELETE with the active community attached.
+ * Every list on screen re-reads afterwards: in mock mode the store notifies
+ * on write, and in live mode `apiFetch` itself notifies (see
+ * `subscribeToLiveWrites` in lib/api.ts) — both feed the same `revision`.
+ */
 export function useMutate() {
   const { activeTenantId } = useAuth();
   const [busy, setBusy] = useState<string | null>(null);

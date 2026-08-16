@@ -17,7 +17,9 @@ import { cn } from "@/lib/utils";
 export default function MigrationPage() {
   const { can } = useAuth();
   const { data: batches } = useApi<any[]>("/migration/batches", []);
-  const { data: entities } = useApi<string[]>("/migration/entities", []);
+  const { data: entities } = useApi<
+    { entity_type: string; label: string }[]
+  >("/migration/entities", []);
   const { mutate } = useMutate();
 
   const [entity, setEntity] = useState("");
@@ -124,8 +126,8 @@ export default function MigrationPage() {
               <Select id="ent" value={entity} onChange={(e) => setEntity(e.target.value)}>
                 <option value="">Choose…</option>
                 {entities.map((e) => (
-                  <option key={e} value={e}>
-                    {e}
+                  <option key={e.entity_type} value={e.entity_type}>
+                    {e.label}
                   </option>
                 ))}
               </Select>

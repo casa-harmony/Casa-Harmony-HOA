@@ -20,6 +20,11 @@ export default function PayablesPage() {
   const { data: payables } = useApi<any[]>("/payables", []);
   const { data: vendors } = useApi<any[]>("/vendors", []);
   const { data: pos } = useApi<any[]>("/purchasing", []);
+  const { data: structures } = useApi<any[]>("/coa/structures", []);
+  const structureId = structures[0]?.id ?? null;
+  const { data: combos } = useApi<any[]>(
+    structureId ? `/coa/structures/${structureId}/combinations` : null, []
+  );
   const { mutate } = useMutate();
 
   const [search, setSearch] = useState("");
@@ -372,6 +377,7 @@ export default function PayablesPage() {
         <NewInvoiceModal
           vendors={vendors}
           pos={pos}
+          combos={combos}
           onClose={() => setCreating(false)}
           onCreate={async (b) => {
             const created: any = await mutate("/payables", "POST", b);
@@ -418,26 +424,36 @@ function MatchCard({ label, value, sub, ok }: { label: string; value: string; su
 }
 
 function NewInvoiceModal({
-  vendors, pos, onClose, onCreate,
+  vendors, pos, combos, onClose, onCreate,
 }: {
   vendors: any[];
   pos: any[];
+  combos: any[];
   onClose: () => void;
   onCreate: (b: any) => Promise<void>;
 }) {
+  const today = new Date().toISOString().split("T")[0];
+  const activeVendors = vendors.filter((v) => v.status?.toUpperCase() === "ACTIVE");
   const [form, setForm] = useState({
-    vendor_id: vendors[0]?.id ?? "",
+    vendor_id: activeVendors[0]?.id ?? "",
     po_header_id: "",
     invoice_number: "",
+    invoice_date: today,
+    gl_date: today,
     amount: "",
     description: "",
-    fund: "Operating",
+    code_combination_id: combos[0]?.id ?? "",
   });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const vendorPos = pos.filter(
     (p) => p.vendor_id === form.vendor_id && p.status === "APPROVED"
   );
+
+  const canSave =
+    form.vendor_id && form.invoice_number.trim() && form.amount &&
+    form.invoice_date && form.gl_date && form.code_combination_id;
 
   return (
     <Modal
@@ -446,19 +462,41 @@ function NewInvoiceModal({
       title="Enter a vendor invoice"
       description="Linking an invoice to a purchase order lets the system match it automatically."
       footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button
-            disabled={!form.invoice_number.trim() || !form.amount || busy}
-            onClick={async () => {
-              setBusy(true);
-              await onCreate({ ...form, amount: Number(form.amount) });
-              setBusy(false);
-            }}
-          >
-            {busy ? "Saving…" : "Save as draft"}
-          </Button>
-        </>
+        <div className="flex w-full items-center gap-3">
+          {error && <p className="flex-1 text-left text-xs text-destructive">{error}</p>}
+          <div className="ml-auto flex gap-2">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button
+              disabled={!canSave || busy}
+              onClick={async () => {
+                setBusy(true);
+                setError(null);
+                const amt = Number(form.amount).toFixed(2);
+                try {
+                  await onCreate({
+                    vendor_id: form.vendor_id,
+                    po_header_id: form.po_header_id || undefined,
+                    invoice_number: form.invoice_number,
+                    invoice_date: form.invoice_date,
+                    gl_date: form.gl_date,
+                    description: form.description || undefined,
+                    lines: [{
+                      description: form.description || undefined,
+                      amount: amt,
+                      distributions: [{ code_combination_id: form.code_combination_id, amount: amt }],
+                    }],
+                  });
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Could not enter invoice");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Saving…" : "Save as draft"}
+            </Button>
+          </div>
+        </div>
       }
     >
       <div className="space-y-4">
@@ -466,7 +504,7 @@ function NewInvoiceModal({
           <div>
             <Label htmlFor="v">Vendor</Label>
             <Select id="v" value={form.vendor_id} onChange={(e) => { set("vendor_id", e.target.value); set("po_header_id", ""); }}>
-              {vendors.filter((v) => v.status === "ACTIVE").map((v) => (
+              {activeVendors.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>
               ))}
             </Select>
@@ -474,6 +512,16 @@ function NewInvoiceModal({
           <div>
             <Label htmlFor="n">Invoice number</Label>
             <Input id="n" value={form.invoice_number} onChange={(e) => set("invoice_number", e.target.value)} placeholder="INV-2026-0412" autoFocus />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="id">Invoice date</Label>
+            <Input id="id" type="date" value={form.invoice_date} onChange={(e) => set("invoice_date", e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="gd">GL date</Label>
+            <Input id="gd" type="date" value={form.gl_date} onChange={(e) => set("gl_date", e.target.value)} />
           </div>
         </div>
         <div>
@@ -498,10 +546,12 @@ function NewInvoiceModal({
             <Input id="a" type="number" value={form.amount} onChange={(e) => set("amount", e.target.value)} placeholder="1250.00" />
           </div>
           <div>
-            <Label htmlFor="f">Fund</Label>
-            <Select id="f" value={form.fund} onChange={(e) => set("fund", e.target.value)}>
-              <option>Operating</option>
-              <option>Reserve</option>
+            <Label htmlFor="cc">GL account</Label>
+            <Select id="cc" value={form.code_combination_id} onChange={(e) => set("code_combination_id", e.target.value)}>
+              <option value="">Account…</option>
+              {combos.map((c) => (
+                <option key={c.id} value={c.id}>{c.concatenated_segments ?? c.id}</option>
+              ))}
             </Select>
           </div>
         </div>

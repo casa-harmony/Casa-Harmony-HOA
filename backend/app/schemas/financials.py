@@ -4,15 +4,19 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Vendors ---------------------------------------------------------------
 class VendorCreate(BaseModel):
     model_config = {"extra": "forbid"}
 
-    vendor_number: str = Field(min_length=1, max_length=40)
+    # Omit to auto-generate (V-000001, V-000002, …) — the UI's Add Vendor
+    # form doesn't collect one, and there is no reason to make staff invent
+    # a vendor number by hand.
+    vendor_number: str | None = Field(default=None, min_length=1, max_length=40)
     name: str = Field(min_length=1, max_length=200)
+    category: str | None = Field(default=None, max_length=80)
     tax_id: str | None = None
     payment_terms: str = "NET30"
     payment_term_id: uuid.UUID | None = None
@@ -26,12 +30,14 @@ class VendorCreate(BaseModel):
     income_tax_type: str | None = Field(default=None, max_length=20)
     state_reportable: bool = False
     tax_reporting_name: str | None = None
+    w9_on_file: bool = False
 
 
 class VendorUpdate(BaseModel):
     model_config = {"extra": "forbid"}
 
     name: str | None = None
+    category: str | None = None
     tax_id: str | None = None
     payment_term_id: uuid.UUID | None = None
     vendor_type_id: uuid.UUID | None = None
@@ -44,12 +50,22 @@ class VendorUpdate(BaseModel):
     income_tax_type: str | None = None
     state_reportable: bool | None = None
     tax_reporting_name: str | None = None
+    w9_on_file: bool | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_upper(cls, v: str | None) -> str | None:
+        # Every status field elsewhere in this codebase is upper-case
+        # (PoHeader, ApInvoice, …); normalise here so a client can't drift a
+        # row into lower-case and break every `status === "ACTIVE"` check.
+        return v.upper() if v else v
 
 
 class VendorOut(BaseModel):
     id: uuid.UUID
     vendor_number: str
     name: str
+    category: str | None
     payment_terms: str
     payment_term_id: uuid.UUID | None
     vendor_type_id: uuid.UUID | None
@@ -62,6 +78,10 @@ class VendorOut(BaseModel):
     income_tax_type: str | None
     state_reportable: bool
     tax_reporting_name: str | None
+    w9_on_file: bool
+    # Computed by the vendors endpoint, not stored — see list_vendors/get_vendor.
+    ytd_spend: Decimal = Decimal("0")
+    open_pos: int = 0
 
     model_config = {"from_attributes": True}
 

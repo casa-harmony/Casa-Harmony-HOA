@@ -47,6 +47,13 @@ class ApInvoiceOut(BaseModel):
     on_hold: bool
     hold_reason: str | None
     gl_je_header_id: uuid.UUID | None
+    # Denormalised for the Payables/Vendors screens — not stored columns, see
+    # `_invoice_out` in app/api/v1/payables.py.
+    vendor_name: str | None = None
+    po_number: str | None = None
+    fund: str | None = None
+    account: str | None = None
+    description: str | None = None
 
     model_config = {"from_attributes": True}
 

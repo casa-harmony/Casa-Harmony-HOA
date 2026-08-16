@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import Principal, require_active_tenant, require_permission
 from app.models.identity import Tenant
-from app.models.payables import ApInvoice
+from app.models.kff import GlCodeCombination
+from app.models.masters import ApSupplier
+from app.models.payables import ApInvoice, ApInvoiceDistribution, ApInvoiceLine
+from app.models.procurement import PoHeader
 from app.models.workflow import ApprovalRequest
 from app.schemas.approvals import ActIn
 from app.schemas.payables import ApInvoiceCreate, ApInvoiceOut, HoldIn
@@ -29,6 +32,50 @@ def _get_inv(db: Session, inv_id: uuid.UUID, tenant_id: uuid.UUID) -> ApInvoice:
     if inv is None or inv.tenant_id != tenant_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
     return inv
+
+
+def _invoices_out(db: Session, tenant_id: uuid.UUID, invoices: list[ApInvoice]) -> list[ApInvoiceOut]:
+    """Denormalise vendor name, PO number and the first line's fund/account —
+    the Payables/Vendors screens render these directly and have no other way
+    to get them, since ApInvoice only stores foreign keys."""
+    if not invoices:
+        return []
+    vendor_ids = {i.vendor_id for i in invoices}
+    po_ids = {i.po_header_id for i in invoices if i.po_header_id}
+    vendors = {v.id: v for v in db.execute(
+        select(ApSupplier).where(ApSupplier.id.in_(vendor_ids))).scalars()}
+    pos = {p.id: p for p in db.execute(
+        select(PoHeader).where(PoHeader.id.in_(po_ids))).scalars()} if po_ids else {}
+    # Keep only the first line per invoice (rows already ordered by line_num).
+    seen: set[uuid.UUID] = set()
+    first_line_by_invoice: dict[uuid.UUID, ApInvoiceLine] = {}
+    for l in db.execute(
+        select(ApInvoiceLine).where(ApInvoiceLine.invoice_id.in_([i.id for i in invoices]))
+        .order_by(ApInvoiceLine.invoice_id, ApInvoiceLine.line_num)
+    ).scalars():
+        if l.invoice_id not in seen:
+            seen.add(l.invoice_id)
+            first_line_by_invoice[l.invoice_id] = l
+    line_ids = [l.id for l in first_line_by_invoice.values()]
+    dists = {d.invoice_line_id: d for d in db.execute(
+        select(ApInvoiceDistribution).where(ApInvoiceDistribution.invoice_line_id.in_(line_ids))
+    ).scalars()} if line_ids else {}
+    combo_ids = {d.code_combination_id for d in dists.values()}
+    combos = {c.id: c for c in db.execute(
+        select(GlCodeCombination).where(GlCodeCombination.id.in_(combo_ids))).scalars()} if combo_ids else {}
+
+    out = []
+    for inv in invoices:
+        line = first_line_by_invoice.get(inv.id)
+        dist = dists.get(line.id) if line else None
+        combo = combos.get(dist.code_combination_id) if dist else None
+        out.append(ApInvoiceOut.model_validate(inv, from_attributes=True).model_copy(update={
+            "vendor_name": vendors[inv.vendor_id].name if inv.vendor_id in vendors else None,
+            "po_number": pos[inv.po_header_id].po_number if inv.po_header_id in pos else None,
+            "fund": dist.fund_value if dist else None,
+            "account": combo.concatenated_segments if combo else None,
+        }))
+    return out
 
 
 def _finalize(db: Session, inv: ApInvoice, approver_id: uuid.UUID) -> None:
@@ -52,10 +99,11 @@ def list_invoices(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("ap.manage")),
 ):
-    return db.execute(
+    rows = db.execute(
         select(ApInvoice).where(ApInvoice.tenant_id == principal.tenant_id)
         .order_by(ApInvoice.invoice_date.desc())
     ).scalars().all()
+    return _invoices_out(db, principal.tenant_id, rows)
 
 
 @router.post("", response_model=ApInvoiceOut, status_code=status.HTTP_201_CREATED)
@@ -77,7 +125,7 @@ def create(
     audit.record(db, action="CREATE", entity_type="ApInvoice", entity_id=inv.id,
                  after={"invoice_number": inv.invoice_number, "amount": str(inv.amount),
                         "match_status": inv.match_status})
-    return inv
+    return _invoices_out(db, principal.tenant_id, [inv])[0]
 
 
 @router.post("/{invoice_id}/submit", response_model=ApInvoiceOut)
@@ -105,7 +153,7 @@ def submit(
         _finalize(db, inv, principal.user.id)
         audit.record(db, action="SUBMIT", entity_type="ApInvoice", entity_id=inv.id,
                      after={"route": "FAST_TRACK_MATCHED"})
-        return inv
+        return _invoices_out(db, principal.tenant_id, [inv])[0]
 
     req = approvals.submit(
         db, tenant_id=principal.tenant_id, document_type="AP_INVOICE",
@@ -124,7 +172,7 @@ def submit(
         _finalize(db, inv, principal.user.id)
     audit.record(db, action="SUBMIT", entity_type="ApInvoice", entity_id=inv.id,
                  after={"route": "BOARD_REVIEW_NONMATCHED"})
-    return inv
+    return _invoices_out(db, principal.tenant_id, [inv])[0]
 
 
 @router.post("/{invoice_id}/approve", response_model=ApInvoiceOut)
@@ -153,7 +201,7 @@ def approve(
         inv.approval_status = "REJECTED"
     audit.record(db, action="APPROVE" if payload.approve else "REJECT",
                  entity_type="ApInvoice", entity_id=inv.id)
-    return inv
+    return _invoices_out(db, principal.tenant_id, [inv])[0]
 
 
 @router.post("/{invoice_id}/hold", response_model=ApInvoiceOut)
@@ -169,7 +217,7 @@ def place_hold(
     inv.hold_reason = payload.reason
     audit.record(db, action="HOLD", entity_type="ApInvoice", entity_id=inv.id,
                  after={"hold_reason": payload.reason})
-    return inv
+    return _invoices_out(db, principal.tenant_id, [inv])[0]
 
 
 @router.post("/{invoice_id}/release-hold", response_model=ApInvoiceOut)
@@ -187,7 +235,7 @@ def release_hold(
     inv.hold_reason = None
     audit.record(db, action="RELEASE_HOLD", entity_type="ApInvoice", entity_id=inv.id,
                  before={"hold_reason": prior})
-    return inv
+    return _invoices_out(db, principal.tenant_id, [inv])[0]
 
 
 @router.post("/{invoice_id}/cancel", response_model=ApInvoiceOut)
@@ -230,7 +278,7 @@ def cancel(
     inv.approval_status = "CANCELLED"
     audit.record(db, action="CANCEL", entity_type="ApInvoice", entity_id=inv.id,
                  after={"po_header_id": str(inv.po_header_id) if inv.po_header_id else None})
-    return inv
+    return _invoices_out(db, principal.tenant_id, [inv])[0]
 
 
 # --- Reports ---------------------------------------------------------------

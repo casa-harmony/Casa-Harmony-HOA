@@ -25,9 +25,15 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _cfg_out(c: GatewayConfig) -> GatewayConfigOut:
-    return GatewayConfigOut(id=getattr(c, "id", None), provider=c.provider,
-                            publishable_key=c.publishable_key, secret_key_set=bool(c.secret_key),
-                            webhook_secret_set=bool(c.webhook_secret), active=c.active)
+    return GatewayConfigOut(
+        id=getattr(c, "id", None), provider=c.provider,
+        publishable_key=c.publishable_key, secret_key_set=bool(c.secret_key),
+        webhook_secret_set=bool(c.webhook_secret), active=c.active,
+        mode="LIVE" if c.active else "TEST",
+        card_enabled=c.card_enabled, ach_enabled=c.ach_enabled,
+        card_fee_pct=c.card_fee_pct, card_fee_flat=c.card_fee_flat,
+        ach_fee_flat=c.ach_fee_flat, pass_fees_to_resident=c.pass_fees_to_resident,
+    )
 
 
 @router.get("/config", response_model=GatewayConfigOut, dependencies=[Depends(require_active_tenant)])
@@ -50,6 +56,12 @@ def put_config(payload: GatewayConfigIn, db: Session = Depends(get_db),
     if payload.webhook_secret is not None:
         c.webhook_secret = payload.webhook_secret or None
     c.active = payload.active
+    c.card_enabled = payload.card_enabled
+    c.ach_enabled = payload.ach_enabled
+    c.card_fee_pct = payload.card_fee_pct
+    c.card_fee_flat = payload.card_fee_flat
+    c.ach_fee_flat = payload.ach_fee_flat
+    c.pass_fees_to_resident = payload.pass_fees_to_resident
     db.flush()
     audit.record(db, action="UPDATE", entity_type="GatewayConfig", entity_id=c.id,
                  after={"provider": c.provider, "active": c.active})

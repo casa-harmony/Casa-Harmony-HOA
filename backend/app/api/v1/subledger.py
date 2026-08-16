@@ -89,6 +89,16 @@ def create_homeowner(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("ar.manage")),
 ):
+    if db.execute(
+        select(ArHomeowner).where(
+            ArHomeowner.tenant_id == principal.tenant_id,
+            ArHomeowner.account_number == payload.account_number,
+        )
+    ).scalar_one_or_none():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Account number {payload.account_number} already exists",
+        )
     h = ArHomeowner(
         tenant_id=principal.tenant_id,
         created_by=principal.user.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   Building2, FileText, Mail, Phone, Plus, ShieldAlert, TriangleAlert, Wallet,
 } from "lucide-react";
@@ -33,18 +33,18 @@ export default function VendorsPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return vendors.filter((v) => {
-      if (status !== "ALL" && v.status !== status) return false;
+      if (status !== "ALL" && v.status?.toUpperCase() !== status) return false;
       return (
         !q ||
         v.name.toLowerCase().includes(q) ||
-        v.category.toLowerCase().includes(q) ||
+        (v.category ?? "").toLowerCase().includes(q) ||
         v.vendor_number.toLowerCase().includes(q)
       );
     });
   }, [vendors, status, search]);
 
-  const active = vendors.filter((v) => v.status === "ACTIVE").length;
-  const ytd = vendors.reduce((s, v) => s + v.ytd_spend, 0);
+  const active = vendors.filter((v) => v.status?.toUpperCase() === "ACTIVE").length;
+  const ytd = vendors.reduce((s, v) => s + Number(v.ytd_spend ?? 0), 0);
   const missingW9 = vendors.filter((v) => !v.w9_on_file).length;
 
   const columns: Column<any>[] = [
@@ -378,14 +378,37 @@ function Muted({ children }: { children: React.ReactNode }) {
 
 /* --------------------------------------------------------- new vendor form */
 
-let draft = { name: "", category: "", payment_terms: "Net 30", email: "", phone: "" };
+// Form and footer are siblings under the same Modal (not nested), so a plain
+// module-level object can't tell the footer to re-render when the form
+// changes it — that starved the footer's disabled/name check of updates.
+// useSyncExternalStore + explicit notify gives both a shared, reactive value.
+const emptyDraft = { name: "", category: "", payment_terms: "Net 30", email: "", phone: "" };
+let draft = { ...emptyDraft };
+const draftListeners = new Set<() => void>();
+
+function setDraftField(k: string, v: string) {
+  draft = { ...draft, [k]: v };
+  draftListeners.forEach((fn) => fn());
+}
+
+function resetDraft() {
+  draft = { ...emptyDraft };
+  draftListeners.forEach((fn) => fn());
+}
+
+function useDraft() {
+  return useSyncExternalStore(
+    (onChange) => {
+      draftListeners.add(onChange);
+      return () => draftListeners.delete(onChange);
+    },
+    () => draft
+  );
+}
 
 function NewVendorForm() {
-  const [, force] = useState(0);
-  const set = (k: string, v: string) => {
-    (draft as any)[k] = v;
-    force((n) => n + 1);
-  };
+  const draft = useDraft();
+  const set = (k: string, v: string) => setDraftField(k, v);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -421,21 +444,32 @@ function NewVendorForm() {
 }
 
 function NewVendorFooter({ onClose, onCreate }: { onClose: () => void; onCreate: (b: any) => Promise<void> }) {
+  const draft = useDraft();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
-    <>
-      <Button variant="secondary" onClick={onClose}>Cancel</Button>
-      <Button
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          await onCreate({ ...draft });
-          draft = { name: "", category: "", payment_terms: "Net 30", email: "", phone: "" };
-          setBusy(false);
-        }}
-      >
-        {busy ? "Adding…" : "Add vendor"}
-      </Button>
-    </>
+    <div className="flex w-full items-center gap-3">
+      {error && <p className="flex-1 text-left text-xs text-destructive">{error}</p>}
+      <div className="ml-auto flex gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button
+          disabled={busy || !draft.name.trim()}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await onCreate({ ...draft });
+              resetDraft();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Could not add vendor");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Adding…" : "Add vendor"}
+        </Button>
+      </div>
+    </div>
   );
 }

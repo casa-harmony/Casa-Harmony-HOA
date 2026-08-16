@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import io
 import uuid
+from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from openpyxl import Workbook, load_workbook
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import Principal, require_active_tenant, require_permission
 from app.models.masters import ApSupplier
+from app.models.payables import ApInvoice
+from app.models.procurement import PoHeader
 from app.models.supplier_ext import ApSupplierBankAccount, ApSupplierContact, ApSupplierSite
 from app.schemas.financials import VendorCreate, VendorOut, VendorUpdate
 from app.schemas.supplier_ext import (
@@ -29,6 +33,8 @@ router = APIRouter(
 )
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+_OPEN_PO_STATUSES = ("INCOMPLETE", "SUBMITTED", "APPROVED", "PARTIALLY_BILLED")
+
 
 def _vendor(db: Session, vid: uuid.UUID, tenant_id: uuid.UUID) -> ApSupplier:
     v = db.get(ApSupplier, vid)
@@ -43,15 +49,52 @@ def _mask(n: str | None) -> str | None:
     return f"****{n[-4:]}" if len(n) >= 4 else "****"
 
 
+def _next_vendor_number(db: Session, tenant_id: uuid.UUID) -> str:
+    n = db.execute(
+        select(func.count(ApSupplier.id)).where(ApSupplier.tenant_id == tenant_id)
+    ).scalar_one()
+    return f"V-{n + 1:06d}"
+
+
+def _with_computed(db: Session, tenant_id: uuid.UUID, vendors: list[ApSupplier]) -> list[VendorOut]:
+    """Attach year-to-date spend and open-PO count — not stored columns."""
+    if not vendors:
+        return []
+    ids = [v.id for v in vendors]
+    year_start = date(date.today().year, 1, 1)
+    spend_rows = db.execute(
+        select(ApInvoice.vendor_id, func.coalesce(func.sum(ApInvoice.amount), 0))
+        .where(ApInvoice.tenant_id == tenant_id, ApInvoice.vendor_id.in_(ids),
+               ApInvoice.status == "PAID", ApInvoice.invoice_date >= year_start)
+        .group_by(ApInvoice.vendor_id)
+    ).all()
+    spend_by_vendor: dict[uuid.UUID, Decimal] = dict(spend_rows)
+    po_rows = db.execute(
+        select(PoHeader.vendor_id, func.count(PoHeader.id))
+        .where(PoHeader.tenant_id == tenant_id, PoHeader.vendor_id.in_(ids),
+               PoHeader.status.in_(_OPEN_PO_STATUSES))
+        .group_by(PoHeader.vendor_id)
+    ).all()
+    open_pos_by_vendor: dict[uuid.UUID, int] = dict(po_rows)
+    return [
+        VendorOut.model_validate(v, from_attributes=True).model_copy(update={
+            "ytd_spend": spend_by_vendor.get(v.id, Decimal("0")),
+            "open_pos": open_pos_by_vendor.get(v.id, 0),
+        })
+        for v in vendors
+    ]
+
+
 @router.get("", response_model=list[VendorOut])
 def list_vendors(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("vendor.manage")),
 ):
-    return db.execute(
+    rows = db.execute(
         select(ApSupplier).where(ApSupplier.tenant_id == principal.tenant_id)
         .order_by(ApSupplier.vendor_number)
     ).scalars().all()
+    return _with_computed(db, principal.tenant_id, rows)
 
 
 @router.post("", response_model=VendorOut, status_code=status.HTTP_201_CREATED)
@@ -60,29 +103,32 @@ def create_vendor(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("vendor.manage")),
 ):
+    data = payload.model_dump()
+    vendor_number = data.pop("vendor_number") or _next_vendor_number(db, principal.tenant_id)
     if db.execute(
         select(ApSupplier).where(
             ApSupplier.tenant_id == principal.tenant_id,
-            ApSupplier.vendor_number == payload.vendor_number,
+            ApSupplier.vendor_number == vendor_number,
         )
     ).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "Vendor number already exists")
     v = ApSupplier(
-        tenant_id=principal.tenant_id, created_by=principal.user.id,
-        updated_by=principal.user.id, **payload.model_dump(),
+        tenant_id=principal.tenant_id, vendor_number=vendor_number,
+        created_by=principal.user.id, updated_by=principal.user.id, **data,
     )
     db.add(v)
     db.flush()
     audit.record(db, action="CREATE", entity_type="ApSupplier", entity_id=v.id,
                  after={"vendor_number": v.vendor_number})
-    return v
+    return _with_computed(db, principal.tenant_id, [v])[0]
 
 
 # --- Detail & edit ---------------------------------------------------------
 @router.get("/{vendor_id}", response_model=VendorOut)
 def get_vendor(vendor_id: uuid.UUID, db: Session = Depends(get_db),
                principal: Principal = Depends(require_permission("vendor.manage"))):
-    return _vendor(db, vendor_id, principal.tenant_id)
+    v = _vendor(db, vendor_id, principal.tenant_id)
+    return _with_computed(db, principal.tenant_id, [v])[0]
 
 
 @router.patch("/{vendor_id}", response_model=VendorOut)
@@ -93,7 +139,7 @@ def update_vendor(vendor_id: uuid.UUID, payload: VendorUpdate, db: Session = Dep
         setattr(v, k, val)
     v.updated_by = principal.user.id
     audit.record(db, action="UPDATE", entity_type="ApSupplier", entity_id=v.id)
-    return v
+    return _with_computed(db, principal.tenant_id, [v])[0]
 
 
 # --- Sites -----------------------------------------------------------------

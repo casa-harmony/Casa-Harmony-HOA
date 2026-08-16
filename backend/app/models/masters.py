@@ -77,6 +77,8 @@ class ApSupplier(Base, TenantMixin, TimestampMixin):
     id: Mapped[uuid.UUID] = uuid_pk()
     vendor_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Trade / category shown on the Vendors screen (e.g. "Landscaping", "Plumbing").
+    category: Mapped[str | None] = mapped_column(String(80))
     # Federal Tax ID / EIN — sensitive, encrypted at rest.
     tax_id: Mapped[str | None] = mapped_column(EncryptedString(255))
     # Legacy free-text terms (kept for back-compat); payment_term_id is authoritative.
@@ -89,7 +91,9 @@ class ApSupplier(Base, TenantMixin, TimestampMixin):
     )
     email: Mapped[str | None] = mapped_column(String(255))
     phone: Mapped[str | None] = mapped_column(String(40))
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    # Stored upper-case ("ACTIVE"/"INACTIVE") to match every other status field
+    # in this codebase (PoHeader, ApInvoice, …) and what the frontend compares.
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE", nullable=False)
     # Default KFF distribution for this supplier's invoices/POs.
     default_distribution_set_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("distribution_sets.id", ondelete="SET NULL")
@@ -103,3 +107,6 @@ class ApSupplier(Base, TenantMixin, TimestampMixin):
     state_reportable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Legal name used on the 1099 if different from the display name.
     tax_reporting_name: Mapped[str | None] = mapped_column(String(200))
+    # W-9 on file — a simple compliance flag; the actual document, if any,
+    # lives in Documents. Missing paperwork blocks year-end 1099 reporting.
+    w9_on_file: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

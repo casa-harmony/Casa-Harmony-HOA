@@ -116,6 +116,13 @@ _CATALOG: list[dict] = [
      "description": "All documents on file for the community"},
 ]
 
+# The Reports screen renders `r.formats.map(...)` for every catalog entry —
+# every report here can be exported as PDF or XLSX, so default it here rather
+# than repeating the same pair 44 times above.
+for _entry in _CATALOG:
+    _entry.setdefault("formats", ["PDF", "XLSX"])
+del _entry
+
 
 @router.get("/catalog")
 def catalog():

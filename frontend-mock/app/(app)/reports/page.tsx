@@ -129,7 +129,7 @@ export default function ReportsPage() {
                 </p>
               </div>
               <div className="flex gap-2 border-t px-5 py-3">
-                {r.formats.map((f: string) => (
+                {(r.formats ?? []).map((f: string) => (
                   <Button
                     key={f}
                     variant="secondary"

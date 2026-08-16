@@ -32,7 +32,16 @@ class GatewayConfig(Base, TenantMixin, TimestampMixin):
     publishable_key: Mapped[str | None] = mapped_column(String(255))
     secret_key: Mapped[str | None] = mapped_column(EncryptedString(255))
     webhook_secret: Mapped[str | None] = mapped_column(EncryptedString(255))
+    # `active` gates whether checkout can actually run (go-live switch); the
+    # Gateway screen displays it as "Live mode"/"Test mode".
     active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    card_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    ach_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    card_fee_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("2.90"), nullable=False)
+    card_fee_flat: Mapped[Decimal] = mapped_column(_AMOUNT, default=Decimal("0.30"), nullable=False)
+    ach_fee_flat: Mapped[Decimal] = mapped_column(_AMOUNT, default=Decimal("1.50"), nullable=False)
+    # False = the community absorbs processing fees; True = passed to the resident.
+    pass_fees_to_resident: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class GatewayTransaction(Base, TenantMixin, TimestampMixin):

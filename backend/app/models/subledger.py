@@ -14,7 +14,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -67,6 +67,9 @@ class ArHomeowner(Base, TenantMixin, TimestampMixin):
     """A homeowner / unit account in the AR subledger."""
 
     __tablename__ = "ar_homeowners"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "account_number", name="uq_ar_homeowners_tenant_account"),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     account_number: Mapped[str] = mapped_column(String(40), nullable=False, index=True)

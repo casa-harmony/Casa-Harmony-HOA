@@ -13,6 +13,12 @@ class GatewayConfigIn(BaseModel):
     secret_key: str | None = None
     webhook_secret: str | None = None
     active: bool = False
+    card_enabled: bool = True
+    ach_enabled: bool = True
+    card_fee_pct: Decimal = Decimal("2.90")
+    card_fee_flat: Decimal = Decimal("0.30")
+    ach_fee_flat: Decimal = Decimal("1.50")
+    pass_fees_to_resident: bool = False
 
 
 class GatewayConfigOut(BaseModel):
@@ -22,6 +28,15 @@ class GatewayConfigOut(BaseModel):
     secret_key_set: bool
     webhook_secret_set: bool
     active: bool
+    # "LIVE" once switched on, "TEST" otherwise — same signal as `active`,
+    # named the way the Gateway screen's "Test mode"/"Live mode" badge reads it.
+    mode: str
+    card_enabled: bool
+    ach_enabled: bool
+    card_fee_pct: Decimal
+    card_fee_flat: Decimal
+    ach_fee_flat: Decimal
+    pass_fees_to_resident: bool
 
 
 class CheckoutIn(BaseModel):

@@ -105,6 +105,23 @@ export function setUnauthorizedHandler(fn: UnauthorizedHandler | null): void {
   onUnauthorized = fn;
 }
 
+/**
+ * Notified after every successful live write (POST/PATCH/PUT/DELETE), so
+ * `useApi()` reads elsewhere on screen can re-fetch. Mirrors mock-data/store's
+ * `subscribe`, which does the equivalent job for the in-browser mock store —
+ * live mode has no store to hook into, only these HTTP calls.
+ */
+const writeListeners = new Set<() => void>();
+
+export function subscribeToLiveWrites(fn: () => void): () => void {
+  writeListeners.add(fn);
+  return () => writeListeners.delete(fn);
+}
+
+function notifyLiveWrite(): void {
+  writeListeners.forEach((fn) => fn());
+}
+
 /* ------------------------------------------------------------ live transport */
 
 function buildUrl(path: string): string {
@@ -194,6 +211,8 @@ async function liveFetch<T>(path: string, opts: FetchOpts, retried = false): Pro
       detail
     );
   }
+
+  if (method !== "GET") notifyLiveWrite();
 
   if (res.status === 204) return null as T;
 

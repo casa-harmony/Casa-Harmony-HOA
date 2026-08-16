@@ -26,6 +26,7 @@ import {
   isLive,
   setAuthToken,
   setUnauthorizedHandler,
+  subscribeToLiveWrites,
 } from "@/lib/api";
 import {
   fetchMe,
@@ -204,6 +205,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Any write through the demo API bumps the revision so pages re-read.
   useEffect(() => subscribe(() => setRevision((r) => r + 1)), []);
+  // Same, for live mode: a plain HTTP POST/PATCH/DELETE has no store to hook
+  // into, so api.ts notifies here directly after every successful write.
+  useEffect(() => subscribeToLiveWrites(() => setRevision((r) => r + 1)), []);
 
   const persist = useCallback((s: Session | null) => {
     if (s) {

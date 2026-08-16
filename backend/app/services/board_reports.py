@@ -128,8 +128,46 @@ def build_cash_flow_forecast_workbook(db, tenant_id, start: date, months, tenant
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 
+def _reserve_funded_pct(db: Session, tenant_id) -> Decimal:
+    """Reserve fund cash on hand, against the active reserve study's total
+    replacement cost. 0 (not null) when there is no active study — the
+    Dashboard/Board screens render this straight into a "N%" label."""
+    from app.models.fixed_assets import ReserveComponent, ReserveStudy
+
+    study_id = db.execute(
+        select(ReserveStudy.id).where(
+            ReserveStudy.tenant_id == tenant_id, ReserveStudy.status == "ACTIVE")
+        .order_by(ReserveStudy.study_year.desc())
+    ).scalars().first()
+    if study_id is None:
+        return Decimal("0")
+    target = Decimal(db.execute(
+        select(func.coalesce(func.sum(ReserveComponent.replacement_cost), 0))
+        .where(ReserveComponent.tenant_id == tenant_id, ReserveComponent.study_id == study_id)
+    ).scalar_one())
+    if target <= 0:
+        return Decimal("0")
+    reserve_cash = _cash_by_fund(db, tenant_id).get("RESV", Decimal("0"))
+    return (reserve_cash / target * 100).quantize(Decimal("1"))
+
+
+def _occupancy(db: Session, tenant_id, num_units: int) -> tuple[Decimal, int]:
+    """Occupied = units with a billing (AR homeowner) account set up, against
+    the community's configured unit count. Returns (pct, occupied_count)."""
+    from app.models.subledger import ArHomeowner
+
+    occupied = db.execute(
+        select(func.count(func.distinct(ArHomeowner.id)))
+        .where(ArHomeowner.tenant_id == tenant_id, ArHomeowner.status == "active")
+    ).scalar_one()
+    pct = (Decimal(occupied) / num_units * 100).quantize(Decimal("1")) if num_units else Decimal("0")
+    return pct, occupied
+
+
 def exec_dashboard(db: Session, tenant_id) -> dict:
     from app.models.collections import DelinquencyCase, Lien, PaymentPlan
+    from app.models.identity import Tenant
+
     cash = _cash_by_fund(db, tenant_id)
     ar = _ar_open_by_fund(db, tenant_id)
     funds = sorted(set(cash) | set(ar))
@@ -142,6 +180,9 @@ def exec_dashboard(db: Session, tenant_id) -> dict:
         PaymentPlan.tenant_id == tenant_id, PaymentPlan.status == "ACTIVE")).scalar_one()
     filed_liens = db.execute(select(func.count(Lien.id)).where(
         Lien.tenant_id == tenant_id, Lien.status == "FILED")).scalar_one()
+    tenant = db.get(Tenant, tenant_id)
+    num_units = tenant.num_units if tenant else 0
+    occupancy_pct, occupied = _occupancy(db, tenant_id, num_units)
     return {
         "funds": [{"fund": f, "cash": str(cash.get(f, Decimal("0")).quantize(Decimal("0.01"))),
                    "ar_open": str(ar.get(f, Decimal("0")).quantize(Decimal("0.01")))} for f in funds],
@@ -151,6 +192,10 @@ def exec_dashboard(db: Session, tenant_id) -> dict:
         "open_cases": open_cases, "active_plans": active_plans, "filed_liens": filed_liens,
         "aging_by_fund": {f: {b: str(v.quantize(Decimal("0.01"))) for b, v in buckets.items()}
                           for f, buckets in aging_by_fund(db, tenant_id, today).items()},
+        "units": num_units,
+        "occupied_units": occupied,
+        "occupancy_pct": int(occupancy_pct),
+        "reserve_funded_pct": int(_reserve_funded_pct(db, tenant_id)),
     }
 
 
