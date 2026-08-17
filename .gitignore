@@ -8,3 +8,4 @@ dist/
 
 # Local Claude Code state (machine-specific)
 .claude/settings.local.json
+backend/.env.local
