@@ -27,38 +27,38 @@ export default function MigrationPage() {
   const [dragging, setDragging] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
-  const totalRows = batches.reduce((s, b) => s + b.row_count, 0);
-  const totalFailed = batches.reduce((s, b) => s + b.failed, 0);
-  const completed = batches.filter((b) => b.status === "COMPLETED").length;
+  const totalRows = batches.reduce((s, b) => s + b.total_rows, 0);
+  const totalFailed = batches.reduce((s, b) => s + b.errors, 0);
+  const completed = batches.filter((b) => b.status === "COMMITTED").length;
 
   const columns: Column<any>[] = [
-    { key: "entity", header: "What was imported", render: (b) => <span className="font-medium">{b.entity}</span> },
-    { key: "rows", header: "Rows", numeric: true, render: (b) => b.row_count.toLocaleString() },
+    { key: "entity", header: "What was imported", render: (b) => <span className="font-medium">{b.entity_type}</span> },
+    { key: "rows", header: "Rows", numeric: true, render: (b) => b.total_rows.toLocaleString() },
     {
       key: "ok",
       header: "Loaded",
       numeric: true,
-      render: (b) => <span className="text-success">{b.succeeded.toLocaleString()}</span>,
+      render: (b) => <span className="text-success">{(b.created + b.updated).toLocaleString()}</span>,
     },
     {
       key: "fail",
       header: "Quarantined",
       numeric: true,
       render: (b) =>
-        b.failed > 0 ? (
-          <span className="font-semibold text-destructive">{b.failed}</span>
+        b.errors > 0 ? (
+          <span className="font-semibold text-destructive">{b.errors}</span>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
     },
     { key: "status", header: "Status", render: (b) => <StatusBadge status={b.status} /> },
-    { key: "when", header: "Imported", render: (b) => <span className="text-xs text-muted-foreground">{shortDate(b.imported_at)}</span> },
-    { key: "by", header: "By", render: (b) => <span className="text-xs text-muted-foreground">{b.imported_by}</span> },
+    { key: "when", header: "Imported", render: (b) => <span className="text-xs text-muted-foreground">{shortDate(b.created_at)}</span> },
+    { key: "file", header: "File", render: (b) => <span className="text-xs text-muted-foreground">{b.source_filename ?? "—"}</span> },
     {
       key: "act",
       header: "",
       render: (b) =>
-        b.can_rollback && b.status === "COMPLETED" && can("data.migrate") ? (
+        b.status === "COMMITTED" && can("data.migrate") ? (
           <Button
             variant="ghost"
             size="sm"

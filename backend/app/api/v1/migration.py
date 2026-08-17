@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
@@ -28,6 +29,7 @@ class BatchOut(BaseModel):
     updated: int
     skipped: int
     errors: int
+    created_at: datetime
 
     class Config:
         from_attributes = True
