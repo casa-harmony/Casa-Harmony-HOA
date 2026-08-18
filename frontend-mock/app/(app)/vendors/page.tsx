@@ -119,7 +119,7 @@ export default function VendorsPage() {
         description="The contractors and suppliers this community buys from — landscapers, plumbers, elevator engineers, security firms."
         actions={
           can("vendor.manage") && (
-            <Button onClick={() => setCreating(true)}>
+            <Button data-tour="vendors-new" onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" />
               Add vendor
             </Button>
@@ -414,17 +414,17 @@ function NewVendorForm() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <Label htmlFor="vn">Vendor name</Label>
-          <Input id="vn" value={draft.name} onChange={(e) => set("name", e.target.value)} autoFocus />
+          <Input id="vn" data-tour="vendor-name" value={draft.name} onChange={(e) => set("name", e.target.value)} autoFocus />
         </div>
         <div>
           <Label htmlFor="vc">Trade</Label>
-          <Input id="vc" value={draft.category} onChange={(e) => set("category", e.target.value)} placeholder="Plumbing" />
+          <Input id="vc" data-tour="vendor-trade" value={draft.category} onChange={(e) => set("category", e.target.value)} placeholder="Plumbing" />
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
           <Label htmlFor="vt">Payment terms</Label>
-          <Select id="vt" value={draft.payment_terms} onChange={(e) => set("payment_terms", e.target.value)}>
+          <Select id="vt" data-tour="vendor-terms" value={draft.payment_terms} onChange={(e) => set("payment_terms", e.target.value)}>
             {["Net 15", "Net 30", "Net 45", "Due on receipt"].map((t) => (
               <option key={t}>{t}</option>
             ))}
@@ -453,6 +453,7 @@ function NewVendorFooter({ onClose, onCreate }: { onClose: () => void; onCreate:
       <div className="ml-auto flex gap-2">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button
+          data-tour="vendor-create-submit"
           disabled={busy || !draft.name.trim()}
           onClick={async () => {
             setBusy(true);

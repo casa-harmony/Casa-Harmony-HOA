@@ -147,7 +147,7 @@ export default function ServiceDeskPage() {
         description="Every problem, request, complaint and rule violation reported in this community — from first report through to the vendor being paid."
         actions={
           can("ticket.manage") && (
-            <Button onClick={() => setCreating(true)}>
+            <Button data-tour="tickets-new" onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" />
               New ticket
             </Button>
@@ -246,6 +246,7 @@ export default function ServiceDeskPage() {
         }
       />
 
+      <div data-tour="tickets-table">
       <DataTable
         rows={filtered}
         columns={columns}
@@ -270,6 +271,7 @@ export default function ServiceDeskPage() {
           />
         }
       />
+      </div>
 
       {ticket && (
         <TicketDrawer
@@ -466,7 +468,7 @@ function TicketDrawer({
               </Select>
             )}
             {ticket.vendor_id && !ticket.po_header_id && (
-              <Button onClick={createPo}>
+              <Button data-tour="ticket-create-po" onClick={createPo}>
                 Raise purchase order
                 <ArrowRight className="h-4 w-4" />
               </Button>
@@ -516,6 +518,7 @@ function TicketDrawer({
             </div>
             {canManage && (
               <Button
+                data-tour="ticket-assign"
                 variant="secondary"
                 size="sm"
                 onClick={() => setAssigning((a) => !a)}
@@ -531,6 +534,7 @@ function TicketDrawer({
                 <Label htmlFor="v">Vendor</Label>
                 <Select
                   id="v"
+                  data-tour="ticket-vendor-select"
                   value={vendorId}
                   onChange={(e) => setVendorId(e.target.value)}
                 >
@@ -548,13 +552,14 @@ function TicketDrawer({
                 <Label htmlFor="e">Estimate ($)</Label>
                 <Input
                   id="e"
+                  data-tour="ticket-estimate"
                   type="number"
                   value={estimate}
                   onChange={(e) => setEstimate(e.target.value)}
                   placeholder="450"
                 />
               </div>
-              <Button onClick={assignVendor} disabled={!vendorId}>
+              <Button data-tour="ticket-assign-submit" onClick={assignVendor} disabled={!vendorId}>
                 Assign
               </Button>
             </div>

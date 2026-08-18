@@ -26,6 +26,7 @@ export default function BoardPage() {
 
   const forecastCols: Column<any>[] = [
     { key: "period", header: "Month", render: (r) => <span className="font-medium">{r.period}</span> },
+    { key: "fund", header: "Fund", render: (r) => <Badge tone="neutral">{r.fund}</Badge> },
     { key: "opening", header: "Opening", numeric: true, render: (r) => money(r.opening, 0) },
     { key: "in", header: "Money in", numeric: true, render: (r) => <span className="text-success">+{money(r.inflow, 0)}</span> },
     { key: "out", header: "Money out", numeric: true, render: (r) => <span className="text-destructive">−{money(r.outflow, 0)}</span> },

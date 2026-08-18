@@ -29,6 +29,10 @@ class BankAccountOut(BaseModel):
     gl_cash_combination_id: uuid.UUID | None
     currency: str
     active: bool
+    # Aliases the Payments screen's bank-position card reads directly.
+    bank: str | None = None
+    fund: str | None = None
+    masked: str | None = None
     model_config = {"from_attributes": True}
 
 

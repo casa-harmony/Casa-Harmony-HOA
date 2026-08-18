@@ -35,12 +35,23 @@ def _err(exc: CashError):
     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
 
 
+def _bank_account_out(acct: CeBankAccount) -> BankAccountOut:
+    masked = f"****{acct.account_number[-4:]}" if acct.account_number and len(acct.account_number) >= 4 else None
+    return BankAccountOut(
+        id=acct.id, account_code=acct.account_code, name=acct.name, fund_value=acct.fund_value,
+        bank_name=acct.bank_name, routing_number=acct.routing_number,
+        gl_cash_combination_id=acct.gl_cash_combination_id, currency=acct.currency, active=acct.active,
+        bank=acct.bank_name, fund=acct.fund_value, masked=masked,
+    )
+
+
 # --- Bank accounts ---------------------------------------------------------
 @router.get("/bank-accounts", response_model=list[BankAccountOut])
 def list_accounts(db: Session = Depends(get_db),
                   p: Principal = Depends(require_permission("cash.manage"))):
-    return db.execute(select(CeBankAccount).where(CeBankAccount.tenant_id == p.tenant_id)
+    rows = db.execute(select(CeBankAccount).where(CeBankAccount.tenant_id == p.tenant_id)
                       .order_by(CeBankAccount.fund_value, CeBankAccount.account_code)).scalars().all()
+    return [_bank_account_out(a) for a in rows]
 
 
 @router.post("/bank-accounts", response_model=BankAccountOut, status_code=status.HTTP_201_CREATED)
@@ -53,7 +64,7 @@ def create_account(payload: BankAccountCreate, db: Session = Depends(get_db),
         _err(exc)
     audit.record(db, action="CREATE", entity_type="CeBankAccount", entity_id=acct.id,
                  after={"account_code": acct.account_code})
-    return acct
+    return _bank_account_out(acct)
 
 
 # --- Statements ------------------------------------------------------------

@@ -94,7 +94,7 @@ export default function TenantsPage() {
               {showDemo ? "Hide demo communities" : "Show demo communities"}
             </Button>
             {can("tenant.create") && (
-              <Button onClick={() => setCreating(true)}>
+              <Button data-tour="tenants-new" onClick={() => setCreating(true)}>
                 <Plus className="h-4 w-4" />
                 New community
               </Button>
@@ -119,7 +119,9 @@ export default function TenantsPage() {
       {flash && <Alert kind="success">{flash}</Alert>}
 
       <StatGrid>
-        <StatCard label="Communities" value={tenants.length} tone="primary" icon={Building2} />
+        <div data-tour="tenants-stat-count">
+          <StatCard label="Communities" value={tenants.length} tone="primary" icon={Building2} />
+        </div>
         <StatCard label="Units under management" value={totalUnits} icon={Home} />
         <StatCard label="Billed monthly" value={money(monthlyBilling, 0)} tone="brass" icon={Wallet} />
         <StatCard label="All active" value={`${tenants.filter((t) => t.status === "active").length} of ${tenants.length}`} tone="success" icon={CheckCircle2} />
@@ -314,6 +316,7 @@ export default function TenantsPage() {
                 Cancel
               </Button>
               <Button
+                data-tour="tenant-create-submit"
                 onClick={handleCreate}
                 disabled={
                   !form.name.trim() ||
@@ -332,6 +335,7 @@ export default function TenantsPage() {
               <Label htmlFor="cn">Community name</Label>
               <Input
                 id="cn"
+                data-tour="tenant-name"
                 placeholder="Willow Creek Estates"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -343,6 +347,7 @@ export default function TenantsPage() {
                 <Label htmlFor="cae">First admin email</Label>
                 <Input
                   id="cae"
+                  data-tour="tenant-admin-email"
                   type="email"
                   placeholder="admin@willowcreek.org"
                   value={form.admin_email}
@@ -353,6 +358,7 @@ export default function TenantsPage() {
                 <Label htmlFor="cap">First admin password</Label>
                 <Input
                   id="cap"
+                  data-tour="tenant-admin-password"
                   type="password"
                   placeholder="8+ characters — they'll change it on first login"
                   value={form.admin_password}
@@ -374,6 +380,7 @@ export default function TenantsPage() {
                 <Label htmlFor="cu">Units</Label>
                 <Input
                   id="cu"
+                  data-tour="tenant-units"
                   type="number"
                   placeholder="120"
                   value={form.num_units}

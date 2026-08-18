@@ -38,6 +38,8 @@ class TicketOut(BaseModel):
     priority: str
     status: str
     homeowner_id: uuid.UUID | None
+    unit: str | None = None
+    reported_by: str | None = None
     vendor_id: uuid.UUID | None
     estimated_cost: Decimal | None
     po_header_id: uuid.UUID | None

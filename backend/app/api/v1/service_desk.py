@@ -14,6 +14,7 @@ from app.core.deps import Principal, require_active_tenant, require_permission
 from app.models.identity import Tenant
 from app.models.procurement import PoHeader
 from app.models.service_desk import ServiceTicket, ServiceTicketComment
+from app.models.subledger import ArHomeowner
 from app.models.workflow import ApprovalRequest
 from app.schemas.approvals import ActIn
 from app.schemas.procurement import PoOut
@@ -35,15 +36,37 @@ def _get_ticket(db: Session, ticket_id: uuid.UUID, tenant_id: uuid.UUID) -> Serv
     return t
 
 
+def _ticket_out(ticket: ServiceTicket, homeowner: ArHomeowner | None) -> dict:
+    return {
+        "id": ticket.id,
+        "ticket_number": ticket.ticket_number,
+        "subject": ticket.subject,
+        "description": ticket.description,
+        "category": ticket.category,
+        "priority": ticket.priority,
+        "status": ticket.status,
+        "homeowner_id": ticket.homeowner_id,
+        "unit": homeowner.property_unit if homeowner else None,
+        "reported_by": f"{homeowner.first_name} {homeowner.last_name}" if homeowner else None,
+        "vendor_id": ticket.vendor_id,
+        "estimated_cost": ticket.estimated_cost,
+        "po_header_id": ticket.po_header_id,
+        "created_at": ticket.created_at,
+    }
+
+
 @router.get("/tickets", response_model=list[TicketOut])
 def list_tickets(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("ticket.manage")),
 ):
-    return db.execute(
-        select(ServiceTicket).where(ServiceTicket.tenant_id == principal.tenant_id)
+    rows = db.execute(
+        select(ServiceTicket, ArHomeowner)
+        .outerjoin(ArHomeowner, ArHomeowner.id == ServiceTicket.homeowner_id)
+        .where(ServiceTicket.tenant_id == principal.tenant_id)
         .order_by(ServiceTicket.created_at.desc())
-    ).scalars().all()
+    ).all()
+    return [_ticket_out(t, h) for t, h in rows]
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketOut)
@@ -52,7 +75,9 @@ def get_ticket(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_permission("ticket.manage")),
 ):
-    return _get_ticket(db, ticket_id, principal.tenant_id)
+    ticket = _get_ticket(db, ticket_id, principal.tenant_id)
+    homeowner = db.get(ArHomeowner, ticket.homeowner_id) if ticket.homeowner_id else None
+    return _ticket_out(ticket, homeowner)
 
 
 @router.post("/tickets", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
@@ -70,9 +95,10 @@ def create_ticket(
     )
     db.add(ticket)
     db.flush()
+    homeowner = db.get(ArHomeowner, ticket.homeowner_id) if ticket.homeowner_id else None
     audit.record(db, action="CREATE", entity_type="ServiceTicket", entity_id=ticket.id,
                  after={"ticket_number": ticket.ticket_number, "subject": ticket.subject})
-    return ticket
+    return _ticket_out(ticket, homeowner)
 
 
 @router.patch("/tickets/{ticket_id}", response_model=TicketOut)
@@ -87,7 +113,8 @@ def update_ticket(
         setattr(ticket, k, v)
     ticket.updated_by = principal.user.id
     audit.record(db, action="UPDATE", entity_type="ServiceTicket", entity_id=ticket.id)
-    return ticket
+    homeowner = db.get(ArHomeowner, ticket.homeowner_id) if ticket.homeowner_id else None
+    return _ticket_out(ticket, homeowner)
 
 
 @router.post("/tickets/{ticket_id}/create-po", response_model=PoOut, status_code=status.HTTP_201_CREATED)

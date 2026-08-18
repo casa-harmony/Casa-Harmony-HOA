@@ -20,6 +20,9 @@ import { relTime } from "@/components/app/kit";
 import { cn } from "@/lib/utils";
 import { isLive } from "@/lib/api";
 import { ReadinessBanner } from "@/components/readiness";
+import { GuideProvider } from "@/components/guide/GuideProvider";
+import { GuideSpotlight } from "@/components/guide/GuideSpotlight";
+import { GuidePanel, GuideLauncher } from "@/components/guide/GuidePanel";
 
 const ICONS: Record<string, React.ElementType> = {
   "/dashboard": LayoutDashboard,
@@ -94,6 +97,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <GuideProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       {/* desktop sidebar */}
       <aside className="hidden w-[248px] shrink-0 flex-col border-r bg-sidebar lg:flex">
@@ -127,7 +131,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      <GuideSpotlight />
+      <GuidePanel />
+      <GuideLauncher />
     </div>
+    </GuideProvider>
   );
 }
 

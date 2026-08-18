@@ -99,11 +99,36 @@ def main() -> int:
 
         for tid, slug in target_info:
             deleted = 0
-            for table in tables:
-                res = db.execute(
-                    text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tid}
-                )
-                deleted += res.rowcount or 0
+            # Tables aren't in FK-safe order (alphabetical from information_schema),
+            # so a straight loop can hit e.g. ap_suppliers before po_headers, which
+            # references it with a RESTRICT (non-deferrable) FK. Retry-until-stable:
+            # each pass deletes whatever no longer has a blocking reference, until
+            # nothing's left or a pass makes no progress (a real cycle, not just order).
+            remaining = list(tables)
+            last_errors: dict[str, str] = {}
+            while remaining:
+                failed = []
+                progressed = False
+                for table in remaining:
+                    savepoint = db.begin_nested()
+                    try:
+                        res = db.execute(
+                            text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tid}
+                        )
+                        savepoint.commit()
+                        deleted += res.rowcount or 0
+                        progressed = True
+                    except Exception as e:
+                        savepoint.rollback()
+                        failed.append(table)
+                        last_errors[table] = str(e).splitlines()[0]
+                if not progressed:
+                    details = "\n".join(f"  {t}: {last_errors[t]}" for t in failed)
+                    raise RuntimeError(
+                        f"Cannot purge {slug}: these tables still have blocking "
+                        f"references and made no progress:\n{details}"
+                    )
+                remaining = failed
             # tenant-scoped (non-system) roles
             db.execute(text("DELETE FROM role_permissions WHERE role_id IN "
                             "(SELECT id FROM roles WHERE tenant_id = :tid)"), {"tid": tid})
