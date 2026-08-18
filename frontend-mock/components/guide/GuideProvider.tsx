@@ -28,10 +28,21 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/app/providers";
 import { apiFetch } from "@/lib/api";
 import { getGuide } from "@/lib/guide/registry";
-import type { Guide, GuideStep } from "@/lib/guide/types";
+import type { Guide, GuideStep, GuideTarget } from "@/lib/guide/types";
 
 /** Survives the navigations a guide performs; deliberately not localStorage. */
 const SESSION_KEY = "casa_guide_progress_v1";
+/** Which guides this person has finished — persists, unlike the in-flight one. */
+const DONE_KEY = "casa_guide_completed_v1";
+
+function readCompleted(): string[] {
+  try {
+    const raw = localStorage.getItem(DONE_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 interface GuideState {
   guide: Guide | null;
@@ -45,6 +56,8 @@ interface GuideState {
   /** Set when a target never turned up — the step still shows, just unanchored. */
   targetMissing: boolean;
   panelOpen: boolean;
+  /** Guide ids the reader has walked to the end at least once. */
+  completed: string[];
 }
 
 interface GuideApi extends GuideState {
@@ -64,17 +77,79 @@ export function useGuide(): GuideApi {
   return ctx;
 }
 
-/** Poll for an element, because React may not have painted it yet. */
-function waitForElement(selector: string, timeoutMs = 8000): Promise<HTMLElement | null> {
+/** offsetParent is null for display:none — a mounted-but-hidden modal field. */
+const visible = (el: HTMLElement | null): el is HTMLElement =>
+  !!el && el.offsetParent !== null;
+
+const norm = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
+
+/**
+ * Find the control a step points at.
+ *
+ * Text matching prefers the *smallest* element containing the text, because
+ * every button is also inside a card, a section and a page — matching the
+ * outermost hit would spotlight the whole screen.
+ */
+function findTarget(target: GuideTarget): HTMLElement | null {
+  if (typeof target === "string") {
+    const el = document.querySelector<HTMLElement>(target);
+    return visible(el) ? el : null;
+  }
+
+  const { text, role = "any", exact = false } = target;
+  const needle = text.toLowerCase();
+  const hit = (s: string) => {
+    const v = norm(s).toLowerCase();
+    return exact ? v === needle : v.includes(needle);
+  };
+
+  if (role === "field") {
+    // Three shapes appear in this codebase, in decreasing reliability:
+    //   <Label htmlFor="x"/><Input id="x"/>      — an explicit association
+    //   <label><input/></label>                  — the control nested inside
+    //   <div><Label/><Input/></div>              — siblings, no association
+    // The third is the most common here and has nothing linking the two, so
+    // fall back to the nearest control inside the label's own container.
+    for (const label of Array.from(document.querySelectorAll("label"))) {
+      if (!hit(label.textContent ?? "")) continue;
+      const id = label.getAttribute("for");
+      const owned =
+        (id && document.getElementById(id)) ||
+        label.querySelector("input,select,textarea") ||
+        label.parentElement?.querySelector("input,select,textarea");
+      if (visible(owned as HTMLElement)) return owned as HTMLElement;
+    }
+    for (const f of Array.from(
+      document.querySelectorAll<HTMLElement>("input,select,textarea")
+    )) {
+      if (!visible(f)) continue;
+      if (hit(f.getAttribute("placeholder") ?? "") || hit(f.getAttribute("aria-label") ?? ""))
+        return f;
+    }
+    return null;
+  }
+
+  const selector = role === "button" ? "button,a[href]" : "*";
+  const matches = Array.from(document.querySelectorAll<HTMLElement>(selector)).filter(
+    (el) => visible(el) && hit(el.textContent ?? "")
+  );
+  if (!matches.length) return null;
+  // Smallest subtree wins — the actual control, not its container.
+  return matches.reduce((best, el) =>
+    el.getElementsByTagName("*").length < best.getElementsByTagName("*").length ? el : best
+  );
+}
+
+/** Poll for the target, because React may not have painted it yet. */
+function waitForElement(target: GuideTarget, timeoutMs = 8000): Promise<HTMLElement | null> {
   return new Promise((resolve) => {
-    const found = document.querySelector<HTMLElement>(selector);
-    if (found?.offsetParent !== null && found) return resolve(found);
+    const immediate = findTarget(target);
+    if (immediate) return resolve(immediate);
 
     const started = Date.now();
     const tick = window.setInterval(() => {
-      const el = document.querySelector<HTMLElement>(selector);
-      // offsetParent is null for display:none — a mounted-but-hidden modal field.
-      if (el && el.offsetParent !== null) {
+      const el = findTarget(target);
+      if (el) {
         window.clearInterval(tick);
         resolve(el);
       } else if (Date.now() - started > timeoutMs) {
@@ -97,6 +172,9 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   const [resolving, setResolving] = useState(false);
   const [targetMissing, setTargetMissing] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [completed, setCompleted] = useState<string[]>([]);
+
+  useEffect(() => setCompleted(readCompleted()), []);
 
   /** Guards against a slow step resolution landing after the user moved on. */
   const runToken = useRef(0);
@@ -253,16 +331,30 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     setTargetMissing(false);
   }, []);
 
+  const markDone = useCallback((id: string) => {
+    setCompleted((prev) => {
+      if (prev.includes(id)) return prev;
+      const nextList = [...prev, id];
+      try {
+        localStorage.setItem(DONE_KEY, JSON.stringify(nextList));
+      } catch {
+        /* private browsing — tracking is a convenience, not a requirement */
+      }
+      return nextList;
+    });
+  }, []);
+
   const next = useCallback(() => {
     setIndex((i) => {
       if (i >= steps.length - 1) {
-        // Finished — tear down on the next tick so the UI can settle.
+        // Reaching the end is what counts as done; abandoning halfway does not.
+        if (guide) markDone(guide.id);
         setTimeout(() => stop(), 0);
         return i;
       }
       return i + 1;
     });
-  }, [steps.length, stop]);
+  }, [steps.length, stop, guide, markDone]);
 
   const back = useCallback(() => setIndex((i) => Math.max(0, i - 1)), []);
 
@@ -274,6 +366,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
     resolving,
     targetMissing,
     panelOpen,
+    completed,
     start,
     next,
     back,

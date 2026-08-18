@@ -742,10 +742,19 @@ function route<T>(c: Ctx): T {
   /* ---------------------------------------------------------- migration */
 
   if (p === "/migration/batches") return ok(d.migrationBatches);
+  // {entity_type, label} objects, matching the server's entity_catalog(). The
+  // screen renders `e.label`, so a bare string list renders "undefined".
   if (p === "/migration/entities")
     return ok([
-      "Homeowners", "Open AR balances", "Vendors", "Historical GL",
-      "Fixed assets", "Open AP invoices", "Documents",
+      { entity_type: "HOMEOWNER", label: "Homeowners / units" },
+      { entity_type: "VENDOR", label: "Vendors / suppliers" },
+      { entity_type: "VENDOR_BANK", label: "Vendor bank accounts (tokenized)" },
+      { entity_type: "AR_OPENING", label: "AR opening balances (open invoices)" },
+      { entity_type: "AP_OPEN_INVOICE", label: "Open AP invoices (header + lines + distributions)" },
+      { entity_type: "PO_OPEN", label: "Purchase orders / contracts (header + lines + distributions)" },
+      { entity_type: "DELINQUENCY_CASE", label: "Delinquency cases" },
+      { entity_type: "AR_RECEIPT", label: "Historical AR receipts / payments" },
+      { entity_type: "AP_PAYMENT", label: "Historical vendor payments (1099)" },
     ]);
   if (seg[0] === "migration" && seg[2] === "rollback" && method === "POST") {
     const b = d.migrationBatches.find((x: any) => x.id === seg[1]);

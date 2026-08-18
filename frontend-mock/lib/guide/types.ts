@@ -29,18 +29,44 @@ export interface GuideContext {
   activeTenantId: string | null;
 }
 
+/**
+ * What a step points at.
+ *
+ * A raw string is a CSS selector, and in practice always a `data-tour`
+ * attribute — never a class name or `nth-child`, which churn with styling and
+ * rot the guide silently.
+ *
+ * The object form finds the control by what the reader actually sees. That
+ * matters at this scale: the app has ~39 screens and several hundred controls,
+ * and threading a hand-written attribute through every one of them is both a
+ * huge diff and a standing maintenance cost. Matching on the visible label is
+ * how a person finds the button anyway. Use `data-tour` where the text is
+ * ambiguous or likely to change, text matching everywhere else.
+ */
+export type GuideTarget =
+  | string
+  | {
+      /** Visible text — matched case-insensitively as a substring by default. */
+      text: string;
+      /**
+       * Narrows the search:
+       * - "button" — <button> or a link styled as an action
+       * - "field"  — the input/select owned by a <label> with this text
+       * - "any"    — any visible element (default)
+       */
+      role?: "button" | "field" | "any";
+      /** Require the whole trimmed text to match rather than a substring. */
+      exact?: boolean;
+    };
+
 export interface GuideStep {
   /**
    * Route this step happens on. The runner navigates here first and waits for
    * the page to settle. Omit to stay wherever the previous step ended.
    */
   route?: string;
-  /**
-   * CSS selector for the control being explained — always a `data-tour`
-   * attribute. Never a class name or nth-child: those churn with styling and
-   * the guide silently rots. Omit for a step that is pure narration.
-   */
-  target?: string;
+  /** The control being explained. Omit for a step that is pure narration. */
+  target?: GuideTarget;
   title: string;
   body: string;
   /**

@@ -641,22 +641,30 @@ export function buildTenantData(t: Tenant, seed: number): TenantData {
   }));
 
   /* migration ------------------------------------------------------------ */
+  /* Field names here mirror the server's MigrationBatch exactly (batch_number,
+   * entity_type, total_rows, created/updated/skipped/errors, COMMITTED). The
+   * two transports feed the same screen, so a mock that invents its own shape
+   * produces a screen that works in the demo and crashes against the real API
+   * — which is precisely what happened before this was aligned. */
   const migrationBatches = [
-    { entity: "Homeowners", rows: units, ok: units, fail: 0, status: "COMPLETED", d: 120 },
-    { entity: "Open AR balances", rows: 46, ok: 46, fail: 0, status: "COMPLETED", d: 120 },
-    { entity: "Vendors", rows: vendors.length, ok: vendors.length, fail: 0, status: "COMPLETED", d: 118 },
-    { entity: "Historical GL", rows: 2840, ok: 2836, fail: 4, status: "COMPLETED", d: 115 },
-    { entity: "Fixed assets", rows: 38, ok: 38, fail: 0, status: "COMPLETED", d: 110 },
+    { entity: "HOMEOWNER", file: "homeowners.csv", rows: units, ok: units, fail: 0, d: 120 },
+    { entity: "AR_OPENING", file: "ar_balances.csv", rows: 46, ok: 46, fail: 0, d: 120 },
+    { entity: "VENDOR", file: "vendors.csv", rows: vendors.length, ok: vendors.length, fail: 0, d: 118 },
+    { entity: "AP_OPEN_INVOICE", file: "open_ap.csv", rows: 2840, ok: 2836, fail: 4, d: 115 },
+    { entity: "PO_OPEN", file: "open_pos.csv", rows: 38, ok: 38, fail: 0, d: 110 },
   ].map((m, i) => ({
     id: `${t.slug}-mig-${i + 1}`,
-    entity: m.entity,
-    row_count: m.rows,
-    succeeded: m.ok,
-    failed: m.fail,
-    status: m.status,
-    imported_at: iso(m.d, 9),
-    imported_by: "Morgan Reyes",
-    can_rollback: i > 2,
+    batch_number: `MIG-${String(i + 1).padStart(5, "0")}`,
+    entity_type: m.entity,
+    source_filename: m.file,
+    status: "COMMITTED",
+    mode: "ADD",
+    total_rows: m.rows,
+    created: m.ok,
+    updated: 0,
+    skipped: 0,
+    errors: m.fail,
+    created_at: iso(m.d, 9),
   }));
 
   /* budgets -------------------------------------------------------------- */
