@@ -28,6 +28,7 @@ class TenantMembershipOut(BaseModel):
     role_name: str | None
     scope: str
     is_demo: bool
+    is_sandbox: bool = False
 
 
 class LoginResponse(BaseModel):
@@ -39,6 +40,9 @@ class LoginResponse(BaseModel):
     email: str
     full_name: str | None
     is_superadmin: bool
+    # True when this login lives in the developer sandbox. The UI uses it to
+    # make the environment unmistakable; the actual isolation is enforced by RLS.
+    is_sandbox: bool = False
     must_change_password: bool = False
     memberships: list[TenantMembershipOut]
 
@@ -48,6 +52,7 @@ class MeResponse(BaseModel):
     email: str
     full_name: str | None
     is_superadmin: bool
+    is_sandbox: bool = False
     must_change_password: bool = False
     active_tenant_id: uuid.UUID | None
     scope: str

@@ -57,7 +57,13 @@ def create_checkout(db: Session, *, tenant_id, invoice_id, amount, homeowner_id=
         raise GatewayError("Amount must be positive")
 
     base = settings.FRONTEND_BASE_URL.rstrip("/")
-    if cfg.provider == "STRIPE":
+    # A sandbox community never reaches a real payment processor, whatever it has
+    # configured — the developer gets the MOCK flow so the full collect-a-payment
+    # path still runs end to end without moving anyone's money.
+    from app.core.context import get_context
+
+    provider = "MOCK" if get_context().is_sandbox else cfg.provider
+    if provider == "STRIPE":
         try:
             res = gp.stripe_create_checkout(
                 secret_key=cfg.secret_key, amount=amt,
@@ -73,13 +79,13 @@ def create_checkout(db: Session, *, tenant_id, invoice_id, amount, homeowner_id=
         checkout_url, client_secret = res["checkout_url"], res["client_secret"]
 
     txn = GatewayTransaction(
-        tenant_id=tenant_id, txn_ref=txn_ref, provider=cfg.provider,
+        tenant_id=tenant_id, txn_ref=txn_ref, provider=provider,
         homeowner_id=homeowner_id or inv.homeowner_id, invoice_id=inv.id, amount=amt,
         status="PENDING", created_by=created_by, updated_by=created_by)
     db.add(txn)
     db.flush()
     return {"txn_ref": txn_ref, "checkout_url": checkout_url, "client_secret": client_secret,
-            "status": "PENDING", "amount": str(amt), "provider": cfg.provider}
+            "status": "PENDING", "amount": str(amt), "provider": provider}
 
 
 def confirm_payment(db: Session, tenant_id, txn_ref: str) -> GatewayTransaction:

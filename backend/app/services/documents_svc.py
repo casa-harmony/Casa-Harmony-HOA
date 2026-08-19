@@ -98,6 +98,13 @@ def _configure() -> None:
 
 def _public_id(tenant_id, storage_key: str) -> str:
     folder = settings.CLOUDINARY_FOLDER.strip("/") or "casa-harmony/documents"
+    # Sandbox uploads are already isolated by tenant_id, but parking them under
+    # their own prefix keeps developer test files from mingling with a client's
+    # in the asset browser, and makes "delete everything sandbox" one prefix.
+    from app.core.context import get_context
+
+    if get_context().is_sandbox:
+        folder = f"{folder}/sandbox"
     return f"{folder}/{tenant_id}/{storage_key}"
 
 

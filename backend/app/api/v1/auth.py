@@ -72,13 +72,18 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_ele
             role_name=r.name,
             scope="tenant",
             is_demo=t.is_demo,
+            is_sandbox=t.is_sandbox,
         )
         for (_m, t, r) in rows
     ]
 
     token = create_access_token(
         subject=str(user.id),
-        extra_claims={"email": user.email, "is_superadmin": user.is_superadmin},
+        extra_claims={
+            "email": user.email,
+            "is_superadmin": user.is_superadmin,
+            "sandbox": user.is_sandbox,
+        },
     )
     refresh_token = create_refresh_token(subject=str(user.id))
     
@@ -99,6 +104,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_ele
         email=user.email,
         full_name=user.full_name,
         is_superadmin=user.is_superadmin,
+        is_sandbox=user.is_sandbox,
         must_change_password=user.must_change_password,
         memberships=memberships,
     )
@@ -135,13 +141,18 @@ def refresh_session(payload: RefreshTokenRequest, request: Request, db: Session 
             role_name=r.name,
             scope="tenant",
             is_demo=t.is_demo,
+            is_sandbox=t.is_sandbox,
         )
         for (_m, t, r) in rows
     ]
 
     new_access_token = create_access_token(
         subject=str(user.id),
-        extra_claims={"email": user.email, "is_superadmin": user.is_superadmin},
+        extra_claims={
+            "email": user.email,
+            "is_superadmin": user.is_superadmin,
+            "sandbox": user.is_sandbox,
+        },
     )
     new_refresh_token = create_refresh_token(subject=str(user.id))
 
@@ -161,6 +172,7 @@ def refresh_session(payload: RefreshTokenRequest, request: Request, db: Session 
         email=user.email,
         full_name=user.full_name,
         is_superadmin=user.is_superadmin,
+        is_sandbox=user.is_sandbox,
         must_change_password=user.must_change_password,
         memberships=memberships,
     )
@@ -207,6 +219,7 @@ def me(principal: Principal = Depends(get_principal)):
         email=principal.user.email,
         full_name=principal.user.full_name,
         is_superadmin=principal.is_superadmin,
+        is_sandbox=principal.user.is_sandbox,
         must_change_password=principal.user.must_change_password,
         active_tenant_id=principal.tenant_id,
         scope="platform" if principal.is_superadmin else "tenant",

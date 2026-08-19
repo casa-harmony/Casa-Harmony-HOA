@@ -3,7 +3,8 @@
 Users are *platform-global* so a SYSADMIN can be granted membership in one or
 many HOAs (tenants). Authorization is the (user, tenant, role) triple stored in
 ``memberships``. The platform SUPERADMIN is flagged on the user row and bypasses
-tenant scoping.
+tenant scoping — but never the sandbox partition (``is_sandbox``), which splits
+tenants and users into two mutually invisible sets.
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Numeric,
 )
+from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +43,10 @@ class Tenant(Base, TimestampMixin):
     # Sample/demo data — hidden from community lists by default. Not a security
     # boundary; RLS/membership scoping is unaffected either way.
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Developer sandbox. Unlike is_demo this *is* a boundary: RLS makes sandbox
+    # and live tenants mutually invisible, so nothing created here can reach or
+    # be reached from the real communities. See the d7c2a91b4e05 migration.
+    is_sandbox: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Profile
     num_units: Mapped[int | None] = mapped_column(Integer)
     timezone: Mapped[str] = mapped_column(String(64), default="America/New_York")
@@ -70,6 +76,9 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str | None] = mapped_column(String(200))
     job_title: Mapped[str | None] = mapped_column(String(200))
     is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Pins this login to the sandbox side of the partition. A sandbox SUPERADMIN
+    # has every permission *within the sandbox* and none outside it.
+    is_sandbox: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Force a password change on next login (set when an admin creates the account).
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -155,3 +164,19 @@ class Membership(Base, TenantMixin, TimestampMixin):
     user: Mapped["User"] = relationship(back_populates="memberships")
     tenant: Mapped["Tenant"] = relationship(back_populates="memberships")
     role: Mapped["Role"] = relationship()
+
+
+# --- Sandbox stamping ------------------------------------------------------
+# Tenants and users are the two platform-global tables, so they are the two that
+# carry the partition flag. Stamping it from the request context on insert —
+# rather than from a request field — means no API payload, script, or future
+# creation path can put a row on the wrong side. RLS WITH CHECK would reject a
+# mismatch anyway; this makes the common case correct instead of an error.
+@event.listens_for(Tenant, "before_insert")
+@event.listens_for(User, "before_insert")
+def _stamp_sandbox(_mapper, _connection, target) -> None:
+    if target.is_sandbox:
+        return
+    from app.core.context import get_context
+
+    target.is_sandbox = get_context().is_sandbox

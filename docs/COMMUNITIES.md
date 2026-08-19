@@ -125,6 +125,64 @@ It refuses to touch `casa-harmony` (the demo) unless you pass `--force`. Use `--
 
 ---
 
+## Developer sandbox (a safe place to break things)
+
+There is a second, mutually invisible universe inside the same database and the
+same deployment. Every tenant and user sits on one side of it — live or sandbox
+— and PostgreSQL RLS keeps the two apart. Nothing you create in the sandbox
+reaches the real communities, and the live SUPERADMIN does not see your test
+communities in its lists either. **The isolation runs both ways.**
+
+### Create the developer login
+
+```bash
+cd backend
+set -a; . ./.env; set +a
+DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.create_dev_admin \
+    --email dev@casaharmony.ai --password 'PickAStrongPassword123!' \
+    --with-community "Sandbox HOA:sandbox-hoa"
+```
+
+Sign in at `/login` exactly as normal. `/auth/me` and the login response return
+`is_sandbox: true` so the UI can make the environment unmistakable.
+
+Re-running with the same email resets that account's password. The script
+refuses to convert an existing **live** account into a sandbox one.
+
+### What the sandbox changes
+
+| | Live | Sandbox |
+|---|---|---|
+| Communities visible | live only | sandbox only |
+| Users visible | live only | sandbox only |
+| Invite / reset / OTP email + SMS | really sent | logged, never sent |
+| Online payments | configured provider (e.g. Stripe) | always MOCK |
+| Document uploads | `<folder>/<tenant>/…` | `<folder>/sandbox/<tenant>/…` |
+| Nightly GL posting | runs | runs (separately) |
+
+Everything else behaves identically — same code paths, same permissions, same
+GL rules. That is the point: you are testing the real application, not a
+simulation of it.
+
+### Reset the sandbox
+
+```bash
+DATABASE_URL="$MIGRATION_DB_URL" python -m scripts.reset_sandbox --yes
+```
+
+Deletes every sandbox community and sandbox login and reports how many live
+communities it left alone. Targets are selected by `is_sandbox = true`, so live
+data is never a candidate — not merely skipped. Add `--keep-admins` to drop the
+communities but keep your developer logins.
+
+### What it is not
+
+The sandbox is an isolation boundary for *data*, not a security sandbox for
+*code*. It does not sandbox migrations: `alembic upgrade` changes the schema for
+both sides at once. Test schema changes against a local database first.
+
+---
+
 ## Document storage
 
 Uploaded invoices, contracts, reserve studies, and other document attachments are stored in **Cloudinary** (if configured) or fall back to local disk (if not).

@@ -68,6 +68,7 @@ class TenantOut(TenantBase):
     status: str
     functional_currency: str
     is_demo: bool
+    is_sandbox: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

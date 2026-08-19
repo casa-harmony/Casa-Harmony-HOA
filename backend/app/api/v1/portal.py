@@ -81,11 +81,22 @@ def list_portal_communities(db: Session = Depends(get_db)):
 
 
 
-def _issue_token(resident: Resident) -> str:
+def _issue_token(db: Session, resident: Resident) -> str:
+    """Mint a resident portal token.
+
+    The sandbox flag is read from the resident's HOA rather than passed in: a
+    resident is only ever as sandboxed as the community they belong to, and
+    deriving it here means no caller can mint a live token for a sandbox HOA.
+    """
+    is_sandbox = bool(
+        db.execute(
+            select(Tenant.is_sandbox).where(Tenant.id == resident.tenant_id)
+        ).scalar_one_or_none()
+    )
     return create_access_token(
         subject=str(resident.id),
         extra_claims={"scope": "resident", "tenant_id": str(resident.tenant_id),
-                      "username": resident.username},
+                      "username": resident.username, "sandbox": is_sandbox},
     )
 
 
@@ -117,7 +128,7 @@ def portal_login(payload: PortalLogin, request: Request, db: Session = Depends(g
 
     # MFA disabled (or no contact on file) → issue the token directly.
     if not resident.mfa_enabled:
-        return PortalLoginResult(mfa_required=False, access_token=_issue_token(resident),
+        return PortalLoginResult(mfa_required=False, access_token=_issue_token(db, resident),
                                  resident=_resident_out(resident))
     try:
         challenge, code = otp.create_challenge(db, resident)
@@ -141,7 +152,7 @@ def portal_login_verify(payload: PortalVerify, request: Request, db: Session = D
         resident = otp.verify_challenge(db, payload.challenge_id, payload.code)
     except otp.OtpError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc))
-    return PortalToken(access_token=_issue_token(resident), resident=_resident_out(resident))
+    return PortalToken(access_token=_issue_token(db, resident), resident=_resident_out(resident))
 
 
 @router.get("/me", response_model=PortalResident)

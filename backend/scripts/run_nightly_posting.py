@@ -22,8 +22,8 @@ from app.models.identity import Tenant
 from app.services.gl_batch import post_all_approved
 
 
-def post_for_tenant(tenant_id) -> int:
-    db = session_for(tenant_id=tenant_id, is_superadmin=True)
+def post_for_tenant(tenant_id, sandbox: bool = False) -> int:
+    db = session_for(tenant_id=tenant_id, is_superadmin=True, sandbox=sandbox)
     try:
         posted = post_all_approved(db, tenant_id)
         db.commit()
@@ -36,22 +36,29 @@ def post_for_tenant(tenant_id) -> int:
 
 
 def main() -> int:
-    # Tenant registry read under an elevated session (platform-level).
-    reg = session_for(tenant_id=None, is_superadmin=True)
-    try:
-        tenant_ids = [t.id for t in reg.execute(select(Tenant)).scalars()]
-    finally:
-        reg.close()
-
+    # Both sides of the sandbox partition are posted, each under its own session:
+    # RLS hides one side from the other, so a single pass would silently skip the
+    # sandbox and leave a developer wondering why their batches never post.
     total = 0
-    for tid in tenant_ids:
+    count = 0
+    for sandbox in (False, True):
+        # Tenant registry read under an elevated session (platform-level).
+        reg = session_for(tenant_id=None, is_superadmin=True, sandbox=sandbox)
         try:
-            n = post_for_tenant(tid)
-            total += n
-            print(f"  tenant {tid}: posted {n} batch(es)")
-        except Exception as exc:  # pragma: no cover
-            print(f"  tenant {tid}: ERROR {exc}")
-    print(f"✅ Nightly posting complete — {total} batch(es) posted across {len(tenant_ids)} tenant(s).")
+            tenant_ids = [t.id for t in reg.execute(select(Tenant)).scalars()]
+        finally:
+            reg.close()
+
+        label = "sandbox" if sandbox else "live"
+        for tid in tenant_ids:
+            count += 1
+            try:
+                n = post_for_tenant(tid, sandbox=sandbox)
+                total += n
+                print(f"  {label} tenant {tid}: posted {n} batch(es)")
+            except Exception as exc:  # pragma: no cover
+                print(f"  {label} tenant {tid}: ERROR {exc}")
+    print(f"✅ Nightly posting complete — {total} batch(es) posted across {count} tenant(s).")
     return 0
 
 

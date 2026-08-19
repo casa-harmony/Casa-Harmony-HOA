@@ -51,15 +51,35 @@ session-level `SET` — that leaks across pooled connections.
 
 **3. New tenant-scoped tables need RLS in the same migration.**
 `ALTER TABLE <t> ENABLE ROW LEVEL SECURITY` plus a policy matching the existing
-ones. Grants flow automatically via `ALTER DEFAULT PRIVILEGES`. A table without
-a policy is readable across every HOA.
+ones — **and** the restrictive sandbox policy, or the new table leaks across the
+developer/live partition:
+
+```sql
+CREATE POLICY sandbox_tenant_visible ON <t> AS RESTRICTIVE
+  USING (<t>.tenant_id IS NULL
+         OR EXISTS (SELECT 1 FROM tenants x WHERE x.id = <t>.tenant_id))
+  WITH CHECK (<t>.tenant_id IS NULL
+         OR EXISTS (SELECT 1 FROM tenants x WHERE x.id = <t>.tenant_id));
+```
+
+Grants flow automatically via `ALTER DEFAULT PRIVILEGES`. A table without a
+policy is readable across every HOA.
 
 **4. The server decides permissions; the UI only reflects them.**
 `lib/rbac.ts` drives navigation and labels. It is **not** an authorisation
 boundary. Live permissions come from `/auth/me` per active tenant. Never add a
 check to the frontend and call it done.
 
-**5. Don't log secrets or PII.** Tax IDs, bank details, and MFA secrets are
+**5. The sandbox partition is a boundary; `is_demo` is not.**
+`tenants.is_sandbox` / `users.is_sandbox` split the database into two mutually
+invisible sets so a developer superadmin can drive the real app without touching
+live data (`docs/COMMUNITIES.md`). It is enforced by the `app.sandbox` GUC and
+RLS — never by an `if` in a route handler, and never from a client-supplied
+field: the side is stamped on insert from the request context
+(`_stamp_sandbox` in `app/models/identity.py`). `is_demo`, by contrast, is only
+a display toggle. Don't conflate them.
+
+**6. Don't log secrets or PII.** Tax IDs, bank details, and MFA secrets are
 Fernet-encrypted at rest. Losing `FIELD_ENCRYPTION_KEY` makes them unreadable
 forever.
 
@@ -108,6 +128,9 @@ DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/alembic upgrade head
 # Community (tenant) management — run as the owner; see docs/COMMUNITIES.md:
 DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/python -m scripts.create_community --name … --slug … --admin-email … --admin-password …
 DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/python -m scripts.purge_tenant --slug … --yes
+# Developer sandbox — isolated from live data; see docs/COMMUNITIES.md:
+DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/python -m scripts.create_dev_admin --email … --password … --with-community "Name:slug"
+DATABASE_URL="$MIGRATION_DB_URL" ./.venv/bin/python -m scripts.reset_sandbox --yes
 ```
 
 Frontend (from `frontend-mock/`):

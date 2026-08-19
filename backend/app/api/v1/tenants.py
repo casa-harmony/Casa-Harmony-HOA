@@ -57,6 +57,21 @@ def list_tenants(
     return rows
 
 
+def _provision_or_conflict(**kwargs) -> Tenant:
+    from sqlalchemy.exc import IntegrityError
+
+    db = kwargs["db"]
+    try:
+        with db.begin_nested():
+            return provision_tenant(**kwargs)
+    except IntegrityError as exc:
+        if "slug" not in str(exc.orig):
+            raise
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Slug '{kwargs['slug']}' already in use"
+        ) from exc
+
+
 @router.post("", response_model=TenantOut, status_code=status.HTTP_201_CREATED)
 def create_tenant(
     payload: TenantCreate,
@@ -67,7 +82,11 @@ def create_tenant(
     if db.execute(select(Tenant).where(Tenant.slug == payload.slug)).scalar_one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, f"Slug '{payload.slug}' already in use")
 
-    tenant = provision_tenant(
+    # Slugs are unique platform-wide, but the sandbox partition hides the other
+    # side's rows from the check above — so a collision across the partition
+    # surfaces only as the unique-index violation. Translate it to the same 409
+    # rather than letting it become a 500.
+    tenant = _provision_or_conflict(
         db=db,
         slug=payload.slug,
         name=payload.name,
@@ -87,7 +106,7 @@ def create_tenant(
         create_default_coa=payload.create_default_coa,
         actor_id=principal.user.id,
     )
-    
+
     return tenant
 
 

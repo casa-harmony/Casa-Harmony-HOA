@@ -14,6 +14,22 @@ from app.core.config import settings
 logger = logging.getLogger("casa-harmony.notify")
 
 
+def _suppressed(kind: str, to: str) -> bool:
+    """True when the caller is a sandbox principal, so nothing is really sent.
+
+    The sandbox exists so a developer can drive the real flows — resident
+    invites, OTP challenges, password resets — without mail or SMS reaching an
+    actual person. The message is logged instead, exactly as it is when no
+    provider is configured, so the token/code is still recoverable from the log.
+    """
+    from app.core.context import get_context
+
+    if not get_context().is_sandbox:
+        return False
+    logger.info("[SANDBOX] suppressed %s to %s (not sent)", kind, to)
+    return True
+
+
 def send_password_invite(to: str, token: str) -> None:
     """Email a one-time set-password link for a newly created account.
 
@@ -51,6 +67,9 @@ def send_resident_password_invite(to: str, hoa_slug: str, token: str) -> None:
 
 def _send_email(to: str, subject: str, body: str, attachments: list[tuple] | None = None) -> None:
     """Send an email. ``attachments`` is a list of (filename, bytes, mime_type)."""
+    if _suppressed("email", to):
+        logger.info("[SANDBOX] subject=%s body=%s", subject, body)
+        return
     if settings.SENDGRID_API_KEY:
         try:
             import base64
@@ -81,6 +100,9 @@ def _send_email(to: str, subject: str, body: str, attachments: list[tuple] | Non
 
 
 def _send_sms(to: str, body: str) -> None:
+    if _suppressed("sms", to):
+        logger.info("[SANDBOX] body=%s", body)
+        return
     if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
         try:
             import httpx

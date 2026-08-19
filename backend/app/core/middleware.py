@@ -32,6 +32,10 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                 ctx.user_id = uuid.UUID(claims["sub"])
                 ctx.email = claims.get("email")
                 ctx.is_superadmin = bool(claims.get("is_superadmin", False))
+                # Which side of the sandbox partition this token belongs to.
+                # Absent on tokens issued before the partition existed, which
+                # correctly defaults them to the live side.
+                ctx.is_sandbox = bool(claims.get("sandbox", False))
                 ctx.scope = claims.get("scope")
                 # Resident portal tokens carry their HOA; bind RLS from the token
                 # (residents never send X-Tenant-Id and cannot switch HOAs).
