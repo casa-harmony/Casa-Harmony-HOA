@@ -23,6 +23,7 @@ import { ReadinessBanner } from "@/components/readiness";
 import { GuideProvider } from "@/components/guide/GuideProvider";
 import { GuideSpotlight } from "@/components/guide/GuideSpotlight";
 import { GuidePanel, GuideLauncher } from "@/components/guide/GuidePanel";
+import { GuideNudge } from "@/components/guide/GuideNudge";
 
 const ICONS: Record<string, React.ElementType> = {
   "/dashboard": LayoutDashboard,
@@ -135,6 +136,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <GuideSpotlight />
       <GuidePanel />
       <GuideLauncher />
+      <GuideNudge />
     </div>
     </GuideProvider>
   );
