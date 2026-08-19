@@ -102,7 +102,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen flex-col overflow-hidden bg-muted/30">
       <TopBar onMenu={() => setMobileOpen(true)} />
 
-      <div className="flex flex-1 overflow-hidden p-4 gap-4 lg:p-6 lg:gap-6">
+      <div className="flex flex-1 overflow-hidden p-2 gap-2 lg:p-3 lg:gap-3">
         {/* desktop sidebar */}
         <aside className="hidden w-[248px] shrink-0 flex-col rounded-xl border bg-background shadow-sm lg:flex overflow-hidden">
           <SidebarContent />
@@ -130,7 +130,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-sm overflow-hidden">
           <ReadinessBanner />
-          <main className="flex-1 overflow-y-auto scroll-thin">
+          <main className="flex-1 overflow-y-auto scroll-thin p-5 lg:p-8">
             {children}
           </main>
         </div>
@@ -150,6 +150,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 function SidebarContent() {
   const { nav, tenant, user, persona, role } = useAuth();
   const pathname = usePathname();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredNav = useMemo(() => {
+    if (!searchQuery.trim()) return nav;
+    const lowerQuery = searchQuery.toLowerCase();
+    
+    return nav.map(group => {
+      const matchingItems = group.items.filter(item => 
+        item.label.toLowerCase().includes(lowerQuery)
+      );
+      return { ...group, items: matchingItems };
+    }).filter(group => group.items.length > 0);
+  }, [nav, searchQuery]);
 
   return (
     <>
@@ -159,14 +172,16 @@ function SidebarContent() {
           <input
             type="text"
             placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-md border border-input bg-background py-1.5 pl-9 pr-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto scroll-thin px-3 pb-4">
-        {nav.map((group, index) => (
-          <div key={group.title} className={cn("mb-6", index !== nav.length - 1 && "border-b pb-6")}>
+        {filteredNav.map((group, index) => (
+          <div key={group.title} className={cn("mb-6", index !== filteredNav.length - 1 && "border-b pb-6")}>
             <p className="mb-2 px-2 text-xs font-medium text-muted-foreground">
               {group.title}
             </p>
