@@ -130,7 +130,7 @@ export const Input = React.forwardRef<
 export const PasswordInput = React.forwardRef<
   HTMLInputElement,
   React.InputHTMLAttributes<HTMLInputElement>
->(function PasswordInput({ className = "", ...props }, ref) {
+>(function PasswordInput({ className = "", type, ...props }, ref) {
   const [show, setShow] = useState(false);
   return (
     <div className="relative">
