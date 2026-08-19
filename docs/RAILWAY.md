@@ -57,6 +57,7 @@ SECRET_KEY=<openssl rand -hex 32>
 FIELD_ENCRYPTION_KEY=<Fernet key — generate once, never rotate casually>
 ENVIRONMENT=production
 BACKEND_CORS_ORIGINS=https://<web-service-domain>
+FRONTEND_BASE_URL=https://<web-service-domain>
 SUPERADMIN_EMAIL=...
 SUPERADMIN_PASSWORD=...
 SENDGRID_API_KEY=...
@@ -66,6 +67,13 @@ ENABLE_SCHEDULER=true
 
 `DATABASE_URL` must be the **`casa_app`** role. Pointing it at `neondb_owner`
 silently disables Row-Level Security — see the hard rules in `AGENTS.md`.
+
+`FRONTEND_BASE_URL` is the **web** service's domain, not the API's — it is the
+address put into emailed invite, password-reset and statement links. Left unset
+it defaults to `http://localhost:3000`, which sends every recipient to their own
+machine. The API still boots without it (deliberately: link generation should
+not be able to take the ledger down) and logs an error on startup, but any email
+carrying a link is refused with a 400 until it is set.
 
 Railway injects `PORT`; the entrypoint binds it automatically. The entrypoint
 also skips the sidecar wait when `DATABASE_URL` is set, which is what makes it

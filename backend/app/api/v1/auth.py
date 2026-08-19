@@ -301,7 +301,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Sessio
     if user is None or not user.is_active:
         return generic
     token = create_password_reset_token(user.id, user.hashed_password)
-    reset_url = f"{settings.FRONTEND_BASE_URL}/reset-password?token={token}"
+    reset_url = f"{notifications.link_base()}/reset-password?token={token}"
     notifications._send_email(
         user.email, "Reset your Casa Harmony password",
         f"Use this link to reset your password (valid 30 minutes): {reset_url}\n"

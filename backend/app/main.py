@@ -44,30 +44,39 @@ app.add_middleware(
 app.add_middleware(TenantContextMiddleware)
 
 
+from app.services.notifications import _is_local_url  # noqa: E402
+
+
 @app.on_event("startup")
 def _check_link_base_url() -> None:
-    """Refuse to boot a production API that mints localhost links.
+    """Log loudly when emailed links would point at the recipient's own machine.
 
     FRONTEND_BASE_URL is what goes into resident invites, password resets and
-    statement links. Left at its development default, every one of those emails
-    points the recipient at their *own* machine — and the failure is invisible
-    from the server side: the mail sends fine, the token is valid, and the
-    resident just sees ERR_CONNECTION_REFUSED. Better to fail loudly here.
+    statement links. Left at its development default those emails all point at
+    ``localhost``, and the failure is invisible server-side: the mail sends, the
+    token is valid, and only the recipient sees ERR_CONNECTION_REFUSED.
+
+    This deliberately does **not** stop the API from booting. Link generation is
+    one feature among dozens; refusing to start would take the ledger, service
+    desk and payments down with it. The refusal happens at the point of use
+    instead — see :func:`app.services.notifications.link_base` — so the admin
+    who triggers an invite gets a clear error and everything else keeps serving.
     """
     import logging
 
     base = settings.FRONTEND_BASE_URL
-    local = any(h in base for h in ("localhost", "127.0.0.1", "0.0.0.0"))
-    if not local:
+    if not _is_local_url(base):
         return
+    logger = logging.getLogger("casa-harmony")
     message = (
-        f"FRONTEND_BASE_URL is {base!r}. Emailed invite, password-reset and "
-        "statement links will point at the recipient's own machine. Set it to "
+        f"FRONTEND_BASE_URL is {base!r}, so emailed invite, password-reset and "
+        "statement links would point at the recipient's own machine. Set it to "
         "the public URL of the frontend."
     )
     if settings.is_production:
-        raise RuntimeError(message)
-    logging.getLogger("casa-harmony").warning("%s (fine for local development)", message)
+        logger.error("%s Link-bearing emails will be refused until it is set.", message)
+    else:
+        logger.warning("%s (fine for local development)", message)
 
 
 @app.on_event("startup")
