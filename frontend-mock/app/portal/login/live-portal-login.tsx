@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowRight, Loader2, Lock } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { portalLogin, portalVerify, setPortalToken, portalCommunities } from "@/lib/portal-live";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, PasswordInput} from "@/components/ui";
 import { ThemeToggle } from "@/components/theme";
 
 const fieldClass =
@@ -170,7 +170,7 @@ export default function LivePortalLogin() {
                 <label htmlFor="pl-password" className="text-sm font-medium">
                   Password
                 </label>
-                <input
+                <PasswordInput
                   id="pl-password"
                   type="password"
                   autoComplete="current-password"

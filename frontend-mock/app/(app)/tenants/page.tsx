@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../providers";
 import { useApi, useMutate } from "@/lib/use-api";
-import { Alert, Badge, Button, Card, Input, Label, Modal, Select } from "@/components/ui";
+import { Alert, Badge, Button, Card, Input, Label, Modal, Select, PasswordInput } from "@/components/ui";
 import {
   DetailSheet, EmptyState, Facts, PageHeader, PageShell, SectionGuide, StatCard, StatGrid,
   StatusBadge, money,
@@ -356,7 +356,7 @@ export default function TenantsPage() {
               </div>
               <div>
                 <Label htmlFor="cap">First admin password</Label>
-                <Input
+                <PasswordInput
                   id="cap"
                   data-tour="tenant-admin-password"
                   type="password"

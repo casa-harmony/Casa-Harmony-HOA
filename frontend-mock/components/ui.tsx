@@ -8,8 +8,8 @@
  * which means light/dark mode comes for free and the palette is consistent.
  */
 
-import React from "react";
-import { X } from "lucide-react";
+import React, { useState } from "react";
+import { X, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ Button */
@@ -125,6 +125,31 @@ export const Input = React.forwardRef<
   React.InputHTMLAttributes<HTMLInputElement>
 >(function Input({ className = "", ...props }, ref) {
   return <input ref={ref} className={cn(fieldBase, className)} {...props} />;
+});
+
+export const PasswordInput = React.forwardRef<
+  HTMLInputElement,
+  React.InputHTMLAttributes<HTMLInputElement>
+>(function PasswordInput({ className = "", ...props }, ref) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        ref={ref}
+        type={show ? "text" : "password"}
+        className={cn(fieldBase, "pr-10", className)}
+        {...props}
+      />
+      <button
+        type="button"
+        onClick={() => setShow(!show)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 rounded-sm"
+        aria-label={show ? "Hide password" : "Show password"}
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
 });
 
 export const Textarea = React.forwardRef<

@@ -19,6 +19,7 @@ import {
 import { REVIEW_UI_ATTR } from "@/lib/review/anchor";
 import type { ReviewPin } from "@/lib/review/types";
 import { useReview } from "./provider";
+import { PasswordInput } from "@/components/ui";
 
 const Z_BAR = 2147483300;
 
@@ -45,7 +46,7 @@ function Passcode() {
         <p className="pt-1 text-xs text-slate-500">
           Enter the passcode to leave comments on this preview.
         </p>
-        <input
+        <PasswordInput
           autoFocus
           type="password"
           value={key}

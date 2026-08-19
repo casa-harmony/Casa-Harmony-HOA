@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, ArrowRight, CheckCircle2, Loader2, Lock } from "lucide-react";
 import { ApiError, isLive } from "@/lib/api";
 import { portalResetPassword } from "@/lib/portal-live";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, PasswordInput} from "@/components/ui";
 import { ThemeToggle } from "@/components/theme";
 
 const fieldClass =
@@ -107,7 +107,7 @@ function ResetForm() {
         <label htmlFor="pr-password" className="text-sm font-medium">
           New password
         </label>
-        <input
+        <PasswordInput
           id="pr-password"
           type="password"
           autoComplete="new-password"
@@ -123,7 +123,7 @@ function ResetForm() {
         <label htmlFor="pr-confirm" className="text-sm font-medium">
           Confirm password
         </label>
-        <input
+        <PasswordInput
           id="pr-confirm"
           type="password"
           autoComplete="new-password"

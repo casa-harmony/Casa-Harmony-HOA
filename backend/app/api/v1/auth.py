@@ -235,6 +235,7 @@ def get_tenants(
 ):
     if user.is_superadmin:
         query = select(Tenant).where(Tenant.status != "suspended")
+        query = query.where(Tenant.is_sandbox == user.is_sandbox)
         if not include_demo:
             query = query.where(Tenant.is_demo.is_(False))
         tenants = db.execute(query).scalars().all()

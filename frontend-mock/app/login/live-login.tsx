@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowRight, Loader2, Lock, ShieldCheck } from "lucide-react";
 import { useAuth } from "../providers";
 import { ApiError } from "@/lib/api";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, PasswordInput} from "@/components/ui";
 import { ThemeToggle } from "@/components/theme";
 
 export default function LiveLogin() {
@@ -92,7 +92,7 @@ export default function LiveLogin() {
             <label htmlFor="password" className="text-sm font-medium">
               Password
             </label>
-            <input
+            <PasswordInput
               id="password"
               type="password"
               autoComplete="current-password"
