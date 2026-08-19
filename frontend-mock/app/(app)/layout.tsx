@@ -99,37 +99,38 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <GuideProvider>
-    <div className="flex h-screen overflow-hidden bg-muted/30">
-      {/* desktop sidebar */}
-      <aside className="hidden w-[248px] shrink-0 flex-col border-r bg-background lg:flex">
-        <SidebarContent />
-      </aside>
+    <div className="flex h-screen flex-col overflow-hidden bg-muted/30">
+      <TopBar onMenu={() => setMobileOpen(true)} />
 
-      {/* mobile drawer */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
-          <div
-            className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
-            onClick={() => setMobileOpen(false)}
-          />
-          <aside className="relative flex w-[264px] flex-col border-r bg-background">
-            <button
+      <div className="flex flex-1 overflow-hidden p-4 gap-4 lg:p-6 lg:gap-6">
+        {/* desktop sidebar */}
+        <aside className="hidden w-[248px] shrink-0 flex-col rounded-xl border bg-background shadow-sm lg:flex overflow-hidden">
+          <SidebarContent />
+        </aside>
+
+        {/* mobile drawer */}
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 flex lg:hidden">
+            <div
+              className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
               onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground hover:bg-muted"
-              aria-label="Close menu"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <SidebarContent />
-          </aside>
-        </div>
-      )}
+            />
+            <aside className="relative flex w-[264px] flex-col bg-background">
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+                aria-label="Close menu"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <SidebarContent />
+            </aside>
+          </div>
+        )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar onMenu={() => setMobileOpen(true)} />
-        <ReadinessBanner />
-        <div className="flex-1 p-4 lg:p-6 lg:pl-0 pt-4 lg:pt-0 overflow-hidden">
-          <main className="h-full overflow-y-auto scroll-thin rounded-2xl border bg-background px-5 py-6 shadow-sm lg:px-8">
+        <div className="flex min-w-0 flex-1 flex-col rounded-xl border bg-background shadow-sm overflow-hidden">
+          <ReadinessBanner />
+          <main className="flex-1 overflow-y-auto scroll-thin">
             {children}
           </main>
         </div>
@@ -152,21 +153,7 @@ function SidebarContent() {
 
   return (
     <>
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b px-5">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
-          CH
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold leading-tight">
-            Casa Harmony
-          </p>
-          <p className="truncate text-xs text-muted-foreground">
-            {tenant?.name ?? "—"}
-          </p>
-        </div>
-      </div>
-      
-      <div className="px-3 py-3">
+      <div className="px-4 pt-5 pb-3">
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <input
@@ -241,7 +228,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
   );
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur lg:px-6">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-4 border-b bg-background px-4 lg:px-6">
       <button
         onClick={onMenu}
         className="rounded-md p-2 text-muted-foreground hover:bg-muted lg:hidden"
@@ -249,6 +236,16 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
       >
         <Menu className="h-4 w-4" />
       </button>
+
+      {/* Brand */}
+      <div className="hidden lg:flex items-center gap-3 pr-4 border-r">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+          CH
+        </div>
+        <p className="truncate text-sm font-semibold leading-tight">
+          Casa Harmony
+        </p>
+      </div>
 
       {/* community switcher */}
       <div className="relative">
