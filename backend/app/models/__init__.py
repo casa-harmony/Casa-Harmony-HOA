@@ -75,6 +75,7 @@ from app.models.service_desk import ServiceTicket, ServiceTicketComment  # noqa:
 from app.models.budget import GlBudget  # noqa: F401
 from app.models.resident import Resident, ResidentUnit  # noqa: F401
 from app.models.otp import ResidentOtpChallenge  # noqa: F401
+from app.models.dev_mailbox import CapturedMessage  # noqa: F401
 from app.models.notifications import ApMatchTolerance, Notification  # noqa: F401
 from app.models.receiving import (  # noqa: F401
     RcvShipmentHeader,
@@ -174,6 +175,7 @@ __all__ = [
     "Resident",
     "ResidentUnit",
     "ResidentOtpChallenge",
+    "CapturedMessage",
     "Notification",
     "ApMatchTolerance",
     "RcvShipmentHeader",

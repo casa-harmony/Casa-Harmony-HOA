@@ -66,9 +66,21 @@ def send_resident_password_invite(to: str, hoa_slug: str, token: str) -> None:
 
 
 def _send_email(to: str, subject: str, body: str, attachments: list[tuple] | None = None) -> None:
-    """Send an email. ``attachments`` is a list of (filename, bytes, mime_type)."""
+    """Send an email. ``attachments`` is a list of (filename, bytes, mime_type).
+
+    Whatever happens to it — really sent, suppressed for a sandbox caller, or
+    logged for want of a provider — the message is also captured into the in-app
+    inbox so invite links and codes can be read back without a real mailbox.
+    """
+    from app.models.dev_mailbox import (
+        STATUS_FAILED, STATUS_NO_PROVIDER, STATUS_SENT, STATUS_SUPPRESSED,
+    )
+    from app.services.dev_mailbox import capture
+
     if _suppressed("email", to):
         logger.info("[SANDBOX] subject=%s body=%s", subject, body)
+        capture(channel="EMAIL", to=to, subject=subject, body=body,
+                status=STATUS_SUPPRESSED)
         return
     if settings.SENDGRID_API_KEY:
         try:
@@ -87,21 +99,41 @@ def _send_email(to: str, subject: str, body: str, attachments: list[tuple] | Non
                      "type": mime, "disposition": "attachment"}
                     for fn, data, mime in attachments
                 ]
-            httpx.post(
+            resp = httpx.post(
                 "https://api.sendgrid.com/v3/mail/send",
                 headers={"Authorization": f"Bearer {settings.SENDGRID_API_KEY}"},
                 json=payload, timeout=12.0,
             )
+            if resp.status_code >= 300:
+                capture(channel="EMAIL", to=to, subject=subject, body=body,
+                        status=STATUS_FAILED,
+                        detail=f"SendGrid {resp.status_code}: {resp.text[:500]}")
+            else:
+                capture(channel="EMAIL", to=to, subject=subject, body=body,
+                        status=STATUS_SENT)
             return
-        except Exception:  # pragma: no cover - provider/network issues
+        except Exception as exc:  # pragma: no cover - provider/network issues
             logger.exception("SendGrid send failed; falling back to log")
+            capture(channel="EMAIL", to=to, subject=subject, body=body,
+                    status=STATUS_FAILED, detail=str(exc)[:500])
+            return
     att = ", ".join(fn for fn, _, _ in (attachments or []))
     logger.info("[DEV EMAIL] to=%s subject=%s attachments=[%s] body=%s", to, subject, att, body)
+    capture(channel="EMAIL", to=to, subject=subject, body=body,
+            status=STATUS_NO_PROVIDER,
+            detail=f"attachments: {att}" if att else None)
 
 
 def _send_sms(to: str, body: str) -> None:
+    from app.models.dev_mailbox import (
+        STATUS_FAILED, STATUS_NO_PROVIDER, STATUS_SENT, STATUS_SUPPRESSED,
+    )
+    from app.services.dev_mailbox import capture
+
     if _suppressed("sms", to):
         logger.info("[SANDBOX] body=%s", body)
+        capture(channel="SMS", to=to, subject=None, body=body,
+                status=STATUS_SUPPRESSED)
         return
     if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
         try:
@@ -113,10 +145,15 @@ def _send_sms(to: str, body: str) -> None:
                 data={"From": settings.TWILIO_FROM_NUMBER, "To": to, "Body": body},
                 timeout=8.0,
             )
+            capture(channel="SMS", to=to, subject=None, body=body, status=STATUS_SENT)
             return
-        except Exception:  # pragma: no cover
+        except Exception as exc:  # pragma: no cover
             logger.exception("Twilio send failed; falling back to log")
+            capture(channel="SMS", to=to, subject=None, body=body,
+                    status=STATUS_FAILED, detail=str(exc)[:500])
+            return
     logger.info("[DEV SMS] to=%s body=%s", to, body)
+    capture(channel="SMS", to=to, subject=None, body=body, status=STATUS_NO_PROVIDER)
 
 
 def send_otp(channel: str, destination: str, code: str) -> None:

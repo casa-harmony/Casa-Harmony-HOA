@@ -14,6 +14,7 @@ from app.api.v1 import (
     coa,
     collections,
     compliance,
+    dev_mailbox,
     dunning,
     encumbrance,
     fixed_assets,
@@ -74,6 +75,7 @@ api_router.include_router(documents.router)
 api_router.include_router(gl.router)
 api_router.include_router(approvals.router)
 api_router.include_router(notifications.router)
+api_router.include_router(dev_mailbox.router)
 api_router.include_router(service_desk.router)
 api_router.include_router(residents.router)
 api_router.include_router(portal.router)

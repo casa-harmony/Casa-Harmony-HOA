@@ -300,6 +300,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/residents", label: "Residents", perm: "resident.manage", priority: true },
       { href: "/documents", label: "Documents", perm: "document.manage", priority: true },
       { href: "/notifications", label: "Notifications", perm: null, priority: true },
+      { href: "/inbox", label: "Test Inbox", perm: "tenant.create", priority: true },
     ],
   },
   {

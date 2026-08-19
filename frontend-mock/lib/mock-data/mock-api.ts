@@ -450,6 +450,30 @@ function route<T>(c: Ctx): T {
     return ok(n ?? {});
   }
 
+  /* -------------------------------------------------------- test inbox */
+  // Mirrors app/api/v1/dev_mailbox.py. The links/codes the detail route pulls
+  // out server-side are derived here the same way, so the screen behaves
+  // identically in both transports.
+  if (p === "/dev-mailbox") return ok(d.mailbox);
+  if (p === "/dev-mailbox/clear" && method === "POST") {
+    d.mailbox.length = 0;
+    return ok(null);
+  }
+  if (seg[0] === "dev-mailbox" && seg[1] && method === "DELETE") {
+    const i = d.mailbox.findIndex((m: any) => m.id === seg[1]);
+    if (i >= 0) d.mailbox.splice(i, 1);
+    return ok(null);
+  }
+  if (seg[0] === "dev-mailbox" && seg[1]) {
+    const m = d.mailbox.find((x: any) => x.id === seg[1]);
+    if (!m) throw new ApiError("Message not found", 404);
+    return ok({
+      ...m,
+      links: m.body.match(/https?:\/\/\S+/g) ?? [],
+      codes: m.body.match(/\b\d{6,10}\b/g) ?? [],
+    });
+  }
+
   /* --------------------------------------------------------- purchasing */
 
   if (p === "/purchasing") return ok(d.purchaseOrders);

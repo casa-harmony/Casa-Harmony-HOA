@@ -225,6 +225,7 @@ export interface TenantData {
   apPayments: any[];
   documents: any[];
   notifications: any[];
+  mailbox: any[];
   bankAccounts: any[];
   glBatches: any[];
   periods: any[];
@@ -500,6 +501,51 @@ export function buildTenantData(t: Tenant, seed: number): TenantData {
     is_read: x.read,
     created_at: iso(x.d, 8 + (i % 9)),
     recipient_role_code: x.cat === "APPROVAL" ? "BOARD_MEMBER" : null,
+  }));
+
+  /* test inbox ----------------------------------------------------------- */
+  // Mirrors what the live API captures: an invite with a working-looking link,
+  // an OTP with a code, and one provider failure so the screen shows all three
+  // shapes without anyone having to trigger a send first.
+  const mailbox = [
+    {
+      id: `${t.slug}-mail-1`,
+      channel: "EMAIL",
+      to_address: residents[0]?.email ?? "resident@example.com",
+      subject: "Welcome to Casa Harmony — set your password",
+      status: "SUPPRESSED",
+      body:
+        `Your resident account has been created. Use this link to set a password ` +
+        `(valid 30 minutes): http://localhost:3000/portal/accept-invite?hoa=${t.slug}&token=demo-invite-token-a1b2c3\n` +
+        `If you did not request this, ignore this email.`,
+      detail: null,
+      created_at: iso(0, 9),
+    },
+    {
+      id: `${t.slug}-mail-2`,
+      channel: "EMAIL",
+      to_address: "owner1@example.com",
+      subject: "Your Casa Harmony verification code",
+      status: "NO_PROVIDER",
+      body: "Your Casa Harmony verification code is 481902. It expires in 10 minutes.",
+      detail: null,
+      created_at: iso(0, 11),
+    },
+    {
+      id: `${t.slug}-mail-3`,
+      channel: "SMS",
+      to_address: "+1 555 0142",
+      subject: null,
+      status: "FAILED",
+      body: "Your Casa Harmony verification code is 730515. It expires in 10 minutes.",
+      detail: "Twilio 21610: recipient has opted out",
+      created_at: iso(1, 16),
+    },
+  ].map((m) => ({
+    ...m,
+    tenant_id: t.id,
+    is_sandbox: false,
+    preview: m.body.replace(/\s+/g, " ").slice(0, 160),
   }));
 
   /* bank accounts -------------------------------------------------------- */
@@ -865,7 +911,7 @@ export function buildTenantData(t: Tenant, seed: number): TenantData {
 
   return {
     vendors, homeowners, residents, tickets, ticketComments,
-    purchaseOrders, receipts, payables, apPayments, documents, notifications,
+    purchaseOrders, receipts, payables, apPayments, documents, notifications, mailbox,
     bankAccounts, glBatches, periods, delinquency, paymentPlans, liens,
     gatewayTxns, schedulerRuns, migrationBatches, budgetVersions, budgetLines,
     fixedAssets, approvalRequests, approvalHierarchies, aging, boardDashboard,

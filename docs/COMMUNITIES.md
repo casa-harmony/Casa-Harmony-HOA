@@ -183,6 +183,44 @@ both sides at once. Test schema changes against a local database first.
 
 ---
 
+## Test Inbox — read mail without a mailbox
+
+Testing an invite, a password reset or an OTP normally needs a real, working
+email address per test account. It doesn't here. Every message the application
+tries to send is captured and readable in-app at **Test Inbox** (`/inbox`),
+with the link or the code pulled out of the body ready to copy.
+
+Messages land there regardless of what happened to them:
+
+| Status | Meaning |
+|---|---|
+| `SENT` | Handed to the mail provider — it really went out |
+| `SUPPRESSED` | Sandbox login, so it was deliberately not sent |
+| `NO_PROVIDER` | No SendGrid/Twilio configured; captured only |
+| `FAILED` | The provider rejected it; the error is on the message |
+
+So it keeps working after real email is wired up: once SendGrid is configured,
+messages still get captured, now marked `SENT`.
+
+### Guards
+
+The captured bodies contain **live reset tokens and one-time codes in the
+clear** — that is the point of the screen, and the reason it is fenced:
+
+- **SUPERADMIN only.** A community admin cannot reach it.
+- **Off in production by default.** Set `DEV_MAILBOX_ENABLED=true` to override,
+  `false` to force it off anywhere.
+- **Split by the sandbox partition.** A developer never reads a live resident's
+  reset token, and clearing one inbox never empties the other.
+- **Capped** at `DEV_MAILBOX_MAX_MESSAGES` (default 500) per side, pruned as new
+  mail arrives, so old tokens don't pile up forever.
+- **Reads are audited** — opening a message body writes a `DEV_MAILBOX_READ`
+  audit entry.
+
+Clear it any time from the screen, or leave it; it self-prunes.
+
+---
+
 ## Document storage
 
 Uploaded invoices, contracts, reserve studies, and other document attachments are stored in **Cloudinary** (if configured) or fall back to local disk (if not).

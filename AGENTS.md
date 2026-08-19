@@ -70,7 +70,15 @@ policy is readable across every HOA.
 boundary. Live permissions come from `/auth/me` per active tenant. Never add a
 check to the frontend and call it done.
 
-**5. The sandbox partition is a boundary; `is_demo` is not.**
+**5. The Test Inbox holds live credentials.**
+`dev_mailbox` captures every outbound email/SMS *including* reset tokens and
+OTP codes in plaintext, so `/inbox` can replace a real mailbox during testing
+(`docs/COMMUNITIES.md`). It is SUPERADMIN-only, off in production unless
+`DEV_MAILBOX_ENABLED` says otherwise, split by the sandbox partition, capped,
+and audited on read. Keep all five when touching it, and never widen the route
+guard to a tenant-level permission.
+
+**6. The sandbox partition is a boundary; `is_demo` is not.**
 `tenants.is_sandbox` / `users.is_sandbox` split the database into two mutually
 invisible sets so a developer superadmin can drive the real app without touching
 live data (`docs/COMMUNITIES.md`). It is enforced by the `app.sandbox` GUC and
@@ -79,7 +87,7 @@ field: the side is stamped on insert from the request context
 (`_stamp_sandbox` in `app/models/identity.py`). `is_demo`, by contrast, is only
 a display toggle. Don't conflate them.
 
-**6. Don't log secrets or PII.** Tax IDs, bank details, and MFA secrets are
+**7. Don't log secrets or PII.** Tax IDs, bank details, and MFA secrets are
 Fernet-encrypted at rest. Losing `FIELD_ENCRYPTION_KEY` makes them unreadable
 forever.
 

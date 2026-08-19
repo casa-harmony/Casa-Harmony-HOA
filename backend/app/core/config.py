@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # --- Application ---
     APP_NAME: str = "Casa Harmony AI"
     ENVIRONMENT: str = "development"
+    # Capture outbound email/SMS into the in-app inbox. None = on outside
+    # production. See Settings.dev_mailbox_enabled.
+    DEV_MAILBOX_ENABLED: bool | None = None
+    # Most recent messages kept per partition; older ones are pruned on write so
+    # stale reset tokens don't accumulate indefinitely.
+    DEV_MAILBOX_MAX_MESSAGES: int = 500
     API_V1_PREFIX: str = "/api/v1"
     # NoDecode: don't let the env source JSON-decode this; the validator below
     # accepts a plain URL or a comma-separated list (e.g. "https://a,https://b").
@@ -108,6 +114,18 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"
+
+    @property
+    def dev_mailbox_enabled(self) -> bool:
+        """Whether outbound mail is captured into the in-app inbox.
+
+        The inbox stores reset tokens and OTP codes in the clear so they can be
+        read back during testing, so it stays off in production unless someone
+        deliberately sets DEV_MAILBOX_ENABLED=true.
+        """
+        if self.DEV_MAILBOX_ENABLED is not None:
+            return self.DEV_MAILBOX_ENABLED
+        return not self.is_production
 
 
 @lru_cache
