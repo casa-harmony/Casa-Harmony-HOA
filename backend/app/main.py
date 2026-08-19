@@ -45,6 +45,32 @@ app.add_middleware(TenantContextMiddleware)
 
 
 @app.on_event("startup")
+def _check_link_base_url() -> None:
+    """Refuse to boot a production API that mints localhost links.
+
+    FRONTEND_BASE_URL is what goes into resident invites, password resets and
+    statement links. Left at its development default, every one of those emails
+    points the recipient at their *own* machine — and the failure is invisible
+    from the server side: the mail sends fine, the token is valid, and the
+    resident just sees ERR_CONNECTION_REFUSED. Better to fail loudly here.
+    """
+    import logging
+
+    base = settings.FRONTEND_BASE_URL
+    local = any(h in base for h in ("localhost", "127.0.0.1", "0.0.0.0"))
+    if not local:
+        return
+    message = (
+        f"FRONTEND_BASE_URL is {base!r}. Emailed invite, password-reset and "
+        "statement links will point at the recipient's own machine. Set it to "
+        "the public URL of the frontend."
+    )
+    if settings.is_production:
+        raise RuntimeError(message)
+    logging.getLogger("casa-harmony").warning("%s (fine for local development)", message)
+
+
+@app.on_event("startup")
 def _maybe_start_scheduler() -> None:
     """Optional in-process nightly GL posting (ENABLE_SCHEDULER=true).
 
