@@ -9,7 +9,7 @@ import {
   LayoutDashboard, ListTree, Lock, LogOut, Mail, Menu, Network, PackageCheck,
   PhoneCall, PieChart, Presentation, Receipt, RefreshCw, Repeat, Landmark,
   Settings, ShieldCheck, ShoppingCart, Tags, Ticket, Timer, UserCog, Users,
-  Wallet, X, ChevronDown, Check, BarChart3,
+  Wallet, X, ChevronDown, Check, BarChart3, Search
 } from "lucide-react";
 import { useAuth } from "../providers";
 import { ROLES } from "@/lib/rbac";
@@ -99,9 +99,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <GuideProvider>
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-muted/30">
       {/* desktop sidebar */}
-      <aside className="hidden w-[248px] shrink-0 flex-col border-r bg-sidebar lg:flex">
+      <aside className="hidden w-[248px] shrink-0 flex-col border-r bg-background lg:flex">
         <SidebarContent />
       </aside>
 
@@ -112,7 +112,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             className="absolute inset-0 bg-foreground/40 backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="relative flex w-[264px] flex-col border-r bg-sidebar">
+          <aside className="relative flex w-[264px] flex-col border-r bg-background">
             <button
               onClick={() => setMobileOpen(false)}
               className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground hover:bg-muted"
@@ -128,9 +128,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onMenu={() => setMobileOpen(true)} />
         <ReadinessBanner />
-        <main className="flex-1 overflow-y-auto scroll-thin px-5 py-6 lg:px-8">
-          {children}
-        </main>
+        <div className="flex-1 p-4 lg:p-6 lg:pl-0 pt-4 lg:pt-0 overflow-hidden">
+          <main className="h-full overflow-y-auto scroll-thin rounded-2xl border bg-background px-5 py-6 shadow-sm lg:px-8">
+            {children}
+          </main>
+        </div>
       </div>
 
       <GuideSpotlight />
@@ -150,7 +152,7 @@ function SidebarContent() {
 
   return (
     <>
-      <div className="flex items-center gap-3 border-b px-5 py-4">
+      <div className="flex h-14 shrink-0 items-center gap-3 border-b px-5">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
           CH
         </div>
@@ -163,10 +165,21 @@ function SidebarContent() {
           </p>
         </div>
       </div>
+      
+      <div className="px-3 py-3">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search..."
+            className="w-full rounded-md border border-input bg-background py-1.5 pl-9 pr-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+      </div>
 
-      <nav className="flex-1 overflow-y-auto scroll-thin px-3 py-4">
-        {nav.map((group) => (
-          <div key={group.title} className="mb-6">
+      <nav className="flex-1 overflow-y-auto scroll-thin px-3 pb-4">
+        {nav.map((group, index) => (
+          <div key={group.title} className={cn("mb-6", index !== nav.length - 1 && "border-b pb-6")}>
             <p className="mb-2 px-2 text-xs font-medium text-muted-foreground">
               {group.title}
             </p>
@@ -183,7 +196,7 @@ function SidebarContent() {
                     className={cn(
                       "flex items-center gap-3 rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
                       active
-                        ? "bg-accent text-foreground shadow-sm"
+                        ? "bg-primary/15 text-primary shadow-sm font-semibold"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
