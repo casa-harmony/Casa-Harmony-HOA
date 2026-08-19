@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
+from app.core.config import settings
 from app.core.database import session_for
 from app.core.security import hash_password
 from app.main import app
@@ -211,3 +212,33 @@ def test_sandbox_suppresses_outbound_email(caplog):
         notifications.settings.SENDGRID_API_KEY = original
         reset_context()
         assert sent == []
+
+
+def test_portal_dropdown_lists_sandbox_communities(dev_admin):
+    """A sandbox HOA must be selectable in the resident portal.
+
+    Regression: the portal's community list is a *public* endpoint, so an
+    anonymous request has no side of the partition. On an RLS-scoped session
+    that silently resolved to "live", which hid every sandbox community and left
+    a developer unable to pick theirs from the dropdown at all — the resident
+    flow became untestable in the sandbox.
+    """
+    _uid, _tid, _email, slug = dev_admin
+    rows = client.get("/api/v1/portal/communities").json()
+    slugs = {r["slug"] for r in rows}
+    assert slug in slugs, "the sandbox HOA should be selectable"
+    assert "casa-harmony" in slugs, "live HOAs must still be listed"
+    assert next(r for r in rows if r["slug"] == slug)["is_sandbox"] is True
+
+
+def test_portal_dropdown_hides_sandbox_in_production(dev_admin):
+    """A real resident must never be offered somebody's test HOA."""
+    _uid, _tid, _email, slug = dev_admin
+    original = settings.ENVIRONMENT
+    settings.ENVIRONMENT = "production"
+    try:
+        slugs = {r["slug"] for r in client.get("/api/v1/portal/communities").json()}
+    finally:
+        settings.ENVIRONMENT = original
+    assert slug not in slugs
+    assert "casa-harmony" in slugs

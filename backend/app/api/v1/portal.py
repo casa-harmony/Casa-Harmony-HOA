@@ -72,12 +72,32 @@ class PortalCommunity(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
+    # Lets the portal label a sandbox community so a developer testing the
+    # resident flow can tell which one they are signing in to.
+    is_sandbox: bool = False
+
 
 @router.get("/communities", response_model=list[PortalCommunity])
-def list_portal_communities(db: Session = Depends(get_db)):
-    """Public endpoint to list communities for the resident login dropdown."""
-    rows = db.execute(select(Tenant.id, Tenant.name, Tenant.slug).order_by(Tenant.name)).all()
-    return [{"id": r.id, "name": r.name, "slug": r.slug} for r in rows]
+def list_portal_communities(db: Session = Depends(get_elevated_db)):
+    """Public endpoint to list communities for the resident login dropdown.
+
+    Runs on an elevated session because it must span the sandbox partition, the
+    same way :func:`portal_login` does — an anonymous request has no side, so an
+    RLS-scoped session would show only live communities and a developer could
+    never pick their sandbox one from the dropdown. Every other portal route
+    that resolves an HOA before the caller is known is elevated for this reason.
+
+    Sandbox communities are still withheld in production, where the dropdown is
+    a real resident's and must not offer them somebody's test HOA.
+    """
+    stmt = select(Tenant.id, Tenant.name, Tenant.slug, Tenant.is_sandbox)
+    if settings.is_production:
+        stmt = stmt.where(Tenant.is_sandbox.is_(False))
+    rows = db.execute(stmt.order_by(Tenant.is_sandbox, Tenant.name)).all()
+    return [
+        {"id": r.id, "name": r.name, "slug": r.slug, "is_sandbox": r.is_sandbox}
+        for r in rows
+    ]
 
 
 

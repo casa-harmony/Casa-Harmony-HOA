@@ -31,7 +31,9 @@ export default function LivePortalLogin() {
   const [slug, setSlug] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [communities, setCommunities] = useState<{ id: string; name: string; slug: string }[]>([]);
+  const [communities, setCommunities] = useState<
+    { id: string; name: string; slug: string; is_sandbox?: boolean }[]
+  >([]);
 
   useEffect(() => {
     portalCommunities()
@@ -123,7 +125,9 @@ export default function LivePortalLogin() {
                   <option value="" disabled>Select your community</option>
                   {communities.map((c) => (
                     <option key={c.id} value={c.slug}>
-                      {c.name}
+                      {/* Sandbox HOAs only ever reach this list outside
+                          production; say so, so a tester knows which one. */}
+                      {c.is_sandbox ? `${c.name} (sandbox)` : c.name}
                     </option>
                   ))}
                 </select>
