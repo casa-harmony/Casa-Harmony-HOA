@@ -58,6 +58,8 @@ FIELD_ENCRYPTION_KEY=<Fernet key — generate once, never rotate casually>
 ENVIRONMENT=production
 BACKEND_CORS_ORIGINS=https://<web-service-domain>
 FRONTEND_BASE_URL=https://<web-service-domain>
+DEV_MAILBOX_ENABLED=true              # Test Inbox; omit on a real client deploy
+PORTAL_SHOW_SANDBOX_COMMUNITIES=true  # sandbox HOAs in the resident dropdown
 SUPERADMIN_EMAIL=...
 SUPERADMIN_PASSWORD=...
 SENDGRID_API_KEY=...
@@ -74,6 +76,12 @@ it defaults to `http://localhost:3000`, which sends every recipient to their own
 machine. The API still boots without it (deliberately: link generation should
 not be able to take the ledger down) and logs an error on startup, but any email
 carrying a link is refused with a 400 until it is set.
+
+The last two are for a deployment used for **testing**. `ENVIRONMENT=production`
+switches the Test Inbox off and hides sandbox HOAs from the resident portal's
+dropdown, which is right for a real client but leaves a testing box with an
+empty dropdown and no inbox. Set both to `true` there, and omit them entirely
+on a deployment serving real residents.
 
 Railway injects `PORT`; the entrypoint binds it automatically. The entrypoint
 also skips the sidecar wait when `DATABASE_URL` is set, which is what makes it

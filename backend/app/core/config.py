@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # Most recent messages kept per partition; older ones are pruned on write so
     # stale reset tokens don't accumulate indefinitely.
     DEV_MAILBOX_MAX_MESSAGES: int = 500
+    # Whether the resident portal's community dropdown offers sandbox HOAs.
+    # None = hidden in production. See Settings.portal_show_sandbox_communities.
+    PORTAL_SHOW_SANDBOX_COMMUNITIES: bool | None = None
     API_V1_PREFIX: str = "/api/v1"
     # NoDecode: don't let the env source JSON-decode this; the validator below
     # accepts a plain URL or a comma-separated list (e.g. "https://a,https://b").
@@ -125,6 +128,21 @@ class Settings(BaseSettings):
         """
         if self.DEV_MAILBOX_ENABLED is not None:
             return self.DEV_MAILBOX_ENABLED
+        return not self.is_production
+
+    @property
+    def portal_show_sandbox_communities(self) -> bool:
+        """Whether sandbox HOAs appear in the resident portal's dropdown.
+
+        Hidden in production by default: a real resident should not be offered
+        somebody's test community. But a deployment can be labelled production
+        and still be used for testing — that is the normal case for a staging or
+        UAT box holding nothing but sandbox HOAs — and there the dropdown must
+        list them or the resident flow cannot be exercised at all. Hence an
+        explicit override rather than inferring it from ENVIRONMENT.
+        """
+        if self.PORTAL_SHOW_SANDBOX_COMMUNITIES is not None:
+            return self.PORTAL_SHOW_SANDBOX_COMMUNITIES
         return not self.is_production
 
 

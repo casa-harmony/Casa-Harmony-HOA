@@ -242,3 +242,23 @@ def test_portal_dropdown_hides_sandbox_in_production(dev_admin):
         settings.ENVIRONMENT = original
     assert slug not in slugs
     assert "casa-harmony" in slugs
+
+
+def test_portal_dropdown_sandbox_override(dev_admin):
+    """A production-labelled deployment used for testing can opt back in.
+
+    Regression: gating on ENVIRONMENT alone left the dropdown permanently empty
+    on a staging box whose every HOA is a sandbox one — nothing to list, and no
+    way to ask for the sandbox ones.
+    """
+    _uid, _tid, _email, slug = dev_admin
+    original_env = settings.ENVIRONMENT
+    original_override = settings.PORTAL_SHOW_SANDBOX_COMMUNITIES
+    settings.ENVIRONMENT = "production"
+    settings.PORTAL_SHOW_SANDBOX_COMMUNITIES = True
+    try:
+        slugs = {r["slug"] for r in client.get("/api/v1/portal/communities").json()}
+    finally:
+        settings.ENVIRONMENT = original_env
+        settings.PORTAL_SHOW_SANDBOX_COMMUNITIES = original_override
+    assert slug in slugs, "the override should bring sandbox HOAs back"

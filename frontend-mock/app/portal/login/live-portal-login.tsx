@@ -35,13 +35,18 @@ export default function LivePortalLogin() {
     { id: string; name: string; slug: string; is_sandbox?: boolean }[]
   >([]);
 
+  // Distinguishes "still loading" from "the server returned none" — an empty
+  // dropdown with no explanation is impossible to diagnose from this screen.
+  const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
+
   useEffect(() => {
     portalCommunities()
       .then((data) => {
         setCommunities(data);
         if (data.length > 0) setSlug(data[0].slug);
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => setCommunitiesLoaded(true));
   }, []);
 
   // MFA step
@@ -131,6 +136,18 @@ export default function LivePortalLogin() {
                     </option>
                   ))}
                 </select>
+                {communitiesLoaded && communities.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No communities are available to sign in to yet. If this
+                    deployment is for testing, its communities may be sandbox
+                    ones — ask an administrator to set
+                    {" "}
+                    <code className="font-mono">
+                      PORTAL_SHOW_SANDBOX_COMMUNITIES=true
+                    </code>{" "}
+                    on the API.
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-col gap-1.5">

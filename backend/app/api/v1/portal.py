@@ -87,11 +87,14 @@ def list_portal_communities(db: Session = Depends(get_elevated_db)):
     never pick their sandbox one from the dropdown. Every other portal route
     that resolves an HOA before the caller is known is elevated for this reason.
 
-    Sandbox communities are still withheld in production, where the dropdown is
-    a real resident's and must not offer them somebody's test HOA.
+    Whether sandbox communities are listed is a deliberate setting rather than an
+    inference from ENVIRONMENT: a deployment can be labelled production and still
+    exist purely for testing, and on such a box every HOA is a sandbox one — so
+    inferring left the dropdown permanently empty. See
+    ``Settings.portal_show_sandbox_communities``.
     """
     stmt = select(Tenant.id, Tenant.name, Tenant.slug, Tenant.is_sandbox)
-    if settings.is_production:
+    if not settings.portal_show_sandbox_communities:
         stmt = stmt.where(Tenant.is_sandbox.is_(False))
     rows = db.execute(stmt.order_by(Tenant.is_sandbox, Tenant.name)).all()
     return [
