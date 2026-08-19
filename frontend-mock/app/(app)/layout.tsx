@@ -150,27 +150,27 @@ function SidebarContent() {
 
   return (
     <>
-      <div className="flex items-center gap-2.5 border-b px-4 py-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
+      <div className="flex items-center gap-3 border-b px-5 py-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
           CH
         </div>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold leading-tight">
             Casa Harmony
           </p>
-          <p className="truncate text-2xs text-muted-foreground">
+          <p className="truncate text-xs text-muted-foreground">
             {tenant?.name ?? "—"}
           </p>
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto scroll-thin px-2.5 py-3">
+      <nav className="flex-1 overflow-y-auto scroll-thin px-3 py-4">
         {nav.map((group) => (
-          <div key={group.title} className="mb-4">
-            <p className="mb-1 px-2 text-2xs font-semibold uppercase tracking-[0.1em] text-muted-foreground/70">
+          <div key={group.title} className="mb-6">
+            <p className="mb-2 px-2 text-xs font-medium text-muted-foreground">
               {group.title}
             </p>
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {group.items.map((item) => {
                 const Icon = ICONS[item.href] ?? LayoutDashboard;
                 const active =
@@ -181,9 +181,9 @@ function SidebarContent() {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors",
+                      "flex items-center gap-3 rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
                       active
-                        ? "bg-primary/12 text-primary"
+                        ? "bg-accent text-foreground shadow-sm"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
@@ -198,9 +198,9 @@ function SidebarContent() {
       </nav>
 
       <div className="border-t p-3">
-        <div className="rounded-lg bg-muted/60 px-2.5 py-2">
-          <p className="truncate text-xs font-semibold">{user?.fullName || persona?.full_name}</p>
-          <p className="truncate text-2xs text-muted-foreground">
+        <div className="rounded-md bg-muted/50 px-2 py-2">
+          <p className="truncate text-sm font-medium">{user?.fullName || persona?.full_name}</p>
+          <p className="truncate text-xs text-muted-foreground">
             {user?.isSuperadmin ? "Super Admin" : role?.name}
           </p>
         </div>
